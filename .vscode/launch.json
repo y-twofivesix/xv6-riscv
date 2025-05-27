@@ -4,14 +4,14 @@
         "type": "gdb",
         "request": "attach",
         "name": "Attach to gdbserver",
-        "executable": "${workspaceRoot}/output/kernel.elf",
+        "executable": "${workspaceRoot}/kernel/kernel.elf",
         "target": "localhost:1234",
         "remote": true,
         "stopAtEntry": true,
         "cwd": "${workspaceRoot}", 
         "gdbpath": "/opt/homebrew/bin/gdb",
-        "preLaunchTask": "Run QEMU",
+        "preLaunchTask": "Run QEMU-GDB",
         "autorun": [],
-    }
+    },
     ]
 }

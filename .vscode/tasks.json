@@ -15,7 +15,7 @@
         {
           "label": "Run QEMU",
           "type": "shell",
-          "command": "echo 'QEMU started'; make qemu-gdb",
+          "command": "echo 'QEMU started'; make qemu",
           "dependsOn": ["Build"],
           "isBackground": true,
           "problemMatcher": [
@@ -35,6 +35,32 @@
 							}
 						}
 					]
+				},
+        {
+          "label": "Run QEMU-GDB",
+          "type": "shell",
+          "command": "echo 'QEMU-GDB started'; make qemu-gdb",
+          "dependsOn": ["Build"],
+          "isBackground": true,
+          "problemMatcher": [
+            {
+              "pattern": [
+                {
+                  "regexp": ".",
+                  "file": 1,
+                  "location": 2,
+                  "message": 3
+								}
+							],
+              "background": {
+                "activeOnStart": true,
+                "beginsPattern": ".",
+                "endsPattern": "QEMU-GDB started",
+							}
+						}
+					]
 				}
+
+        
 		]
 }

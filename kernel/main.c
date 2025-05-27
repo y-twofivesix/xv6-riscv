@@ -10,11 +10,12 @@ volatile static int started = 0;
 void
 main()
 {
+  
   if(cpuid() == 0){
     consoleinit();
     printfinit();
     printf("\n");
-    printf("xv6 kernel is booting\n");
+    printf("\033[90;1mbooting kernel.\n\033[m");
     printf("\n");
     kinit();         // physical page allocator
     kvminit();       // create kernel page table
@@ -35,11 +36,12 @@ main()
     while(started == 0)
       ;
     __sync_synchronize();
-    printf("hart %d starting\n", cpuid());
+    printf("\033[90;1mhart %d starting\n\033[m", cpuid());
     kvminithart();    // turn on paging
     trapinithart();   // install kernel trap vector
     plicinithart();   // ask PLIC for device interrupts
   }
-
-  scheduler();        
+  
+  scheduler();
+   
 }

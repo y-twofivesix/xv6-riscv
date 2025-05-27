@@ -24,7 +24,21 @@ main(void)
   dup(0);  // stderr
 
   for(;;){
-    printf("init: starting sh\n");
+
+    //printf("\n\n\033[38;2;255;68;51m");
+    printf("\n\n\033[90;1m");
+    printf("\t\t\t    █████╗ ██████╗ ████████╗          ██████╗ \n");
+    printf("\t\t\t██╗██╔══██╗██╔══██╗╚══██╔══╝██╗   ██╗██╔═████╗\n");
+    printf("\t\t\t██║███████║██████╔╝   ██║   ██║   ██║██║██╔██║\n");
+    printf("\t\t\t██║██╔══██║██╔══██╗   ██║   ╚██╗ ██╔╝████╔╝██║\n");
+    printf("\t\t\t██║██║  ██║██║  ██║   ██║    ╚████╔╝ ╚██████╔╝\n");
+    printf("\t\t\t╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝     ╚═══╝   ╚═════╝ \n");
+    printf("\n\n\t\t\tiART dev-kernel version 0.0.0. AART. 2025.");
+    printf("\n\t\t\tThis is a fork of the xv6 operating system,");
+    printf("\n\t\t\ta re-implementation of Dennis Ritchie's and");
+    printf("\n\t\t\tKen Thompson's Unix Version 6 (v6).");
+    printf("\n\n\033[m");  
+
     pid = fork();
     if(pid < 0){
       printf("init: fork failed\n");

@@ -177,11 +177,11 @@ void
 uartintr(void)
 {
   // read and process incoming characters.
-  while(1){
-    int c = uartgetc();
-    if(c == -1)
-      break;
-    consoleintr(c);
+  int c = uartgetc();
+  while(c != -1){
+    int next = uartgetc();
+    consoleintr(c, next);
+    c = next;
   }
 
   // send buffered characters.
