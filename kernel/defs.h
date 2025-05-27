@@ -48,6 +48,7 @@ void            iunlockput(struct inode*);
 void            iupdate(struct inode*);
 int             namecmp(const char*, const char*);
 struct inode*   namei(char*);
+int             iname(const uint, char * buf);
 struct inode*   nameiparent(char*, char*);
 int             readi(struct inode*, int, uint64, uint, uint);
 void            stati(struct inode*, struct stat*);
@@ -77,9 +78,24 @@ int             piperead(struct pipe*, uint64, int);
 int             pipewrite(struct pipe*, uint64, int);
 
 // printf.c
-int            printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
+int             printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
+
+#define BACKSPACE 0x100
+#define ESCAPE    0x1B
+#define LEFT      0x44
+#define RIGHT     0x43
+#define UP        0x41
+#define DOWN      0x42
+#define PARENTH_O 0x5B
+
+#define CLEAR_SCREEN()  printf("\033[2J")
+#define GOTO_XY(x,y)    printf("\033[%d;%dH", (y), (x))
+#define MOVE_UP(x)      printf("\033[%dA", (x)) // Move up X lines;
+#define MOVE_DOWN(x)    printf("\033[%dB", (x)) // Move down X lines;
+#define MOVE_RIGHT(x)   printf("\033[%dC", (x)) // Move right X column;
+#define MOVE_LEFT(x)    printf("\033[%dD", (x)) // Move left X column;
 
 // proc.c
 int             cpuid(void);

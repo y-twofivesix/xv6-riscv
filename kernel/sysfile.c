@@ -253,6 +253,7 @@ create(char *path, short type, short major, short minor)
 
   ilock(dp);
 
+  // check if directory already exists
   if((ip = dirlookup(dp, name, 0)) != 0){
     iunlockput(dp);
     ilock(ip);
@@ -509,29 +510,23 @@ sys_pwd(void)
 {
 
   uint64  ap;
-   struct dirent de;
   struct proc *p = myproc();
 
-  ilock(p->cwd);
-
-  if(readi(p->cwd, 0, (uint64)&de, 0, sizeof(de)) != sizeof(de))
-  {
-    iunlock(p->cwd);
-    return -1;
-  }
-
-  // retrieve arg 0 ptr of getpwd from user
   argaddr(0, &ap);
-  int name_sz = 256;
-  char buf[name_sz];
-  strncpy(buf, de.name, name_sz );
-  
-  if (copyout(p->pagetable, ap, buf, name_sz) < 0)
+  uint cwd_inode = p->cwd->inum;
+
+  char pwd[DIRSIZ];
+  if (iname(cwd_inode, pwd) < 0) 
+  {
+    return -1;
+  }
+
+  ilock(p->cwd);
+  if (copyout(p->pagetable, ap, pwd, DIRSIZ) < 0)
   {
     iunlock(p->cwd);
     return -1;
   }
-
   iunlock(p->cwd);
   return 0;
 }

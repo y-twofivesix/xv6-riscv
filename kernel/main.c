@@ -36,6 +36,7 @@ main()
     while(started == 0)
       ;
     __sync_synchronize();
+
     printf("\033[90;1mhart %d starting\n\033[m", cpuid());
     kvminithart();    // turn on paging
     trapinithart();   // install kernel trap vector

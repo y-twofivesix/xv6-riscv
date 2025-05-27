@@ -22,20 +22,6 @@
 #include "defs.h"
 #include "proc.h"
 
-#define BACKSPACE 0x100
-#define ESCAPE    0x1B
-#define LEFT      0x44
-#define RIGHT     0x43
-#define UP        0x41
-#define DOWN      0x42
-#define PARENTH_O 0x5B
-
-
-#define GOTO_XY(x,y)  printf("\033[%d;%dH", (y), (x))
-#define MOVE_UP(x)    printf("\033[%dA", (x)) // Move up X lines;
-#define MOVE_DOWN(x)  printf("\033[%dB", (x)) // Move down X lines;
-#define MOVE_RIGHT(x) printf("\033[%dC", (x)) // Move right X column;
-#define MOVE_LEFT(x)  printf("\033[%dD", (x)) // Move left X column;
 
 #define C(x)  ((x)-'@')  // Control-x
 
@@ -225,11 +211,8 @@ consoleintr(int c, int next)
     }
     break;
   case C('U'):  // clear screen.
-    printf("\033[2J");
-    // for(int i=0;i<INPUT_BUF_SIZE;i++){
-    //   uartputc_sync('\n');
-    // }
-    // consputc('\n');
+    CLEAR_SCREEN();
+    printf("\033[999;999H\033[6n\033[H");
     break;
   case C('H'): // Backspace
   case '\x7f': // Delete key
@@ -284,6 +267,6 @@ consoleinit(void)
 
   // connect read and write system calls
   // to consoleread and consolewrite.
-  devsw[CONSOLE].read = consoleread;
-  devsw[CONSOLE].write = consolewrite;
+  devsw[CONSOLE].read   = consoleread;
+  devsw[CONSOLE].write  = consolewrite;
 }

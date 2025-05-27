@@ -18,8 +18,7 @@ getpwd(char *buf)
 int
 main(int argc, char *argv[])
 {
-  const int MAX_BUF = 256;
-  char buf[MAX_BUF];
+  char buf[DIRSIZ];
   getpwd(buf);
   exit(0);
 }

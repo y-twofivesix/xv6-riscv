@@ -690,6 +690,48 @@ namei(char *path)
   return namex(path, 0, name);
 }
 
+
+int 
+iname(const uint inum, char * buf)
+{
+
+    if (inum == ROOTINO) 
+    {
+      strncpy(buf, "/", sizeof("/"));
+      return 0;
+    }
+
+    struct dirent pde;
+    struct inode *ip;
+    if((ip = namei("..")) == 0)
+    {
+      return -1;
+    }
+
+    ilock(ip);
+    for(int off = 0; off < ip->size; off += sizeof(pde))
+    {
+      if(readi(ip, 0, (uint64)&pde, off, sizeof(pde)) != sizeof(pde))
+        panic("iname read");
+      if(pde.inum == 0)
+        continue;
+      if(pde.inum == inum){
+        // entry matches path element
+        strncpy(buf, pde.name, sizeof(pde.name));
+        iunlock(ip);
+        return 0;
+      }
+    }
+  panic("iname");
+  
+}
+
+void 
+inamefull(struct inode* ip, const struct dirent * de, char * buf)
+{
+  
+}
+
 struct inode*
 nameiparent(char *path, char *name)
 {
