@@ -351,7 +351,7 @@ typedef uint64 *pagetable_t; // 512 PTEs
 
 #endif // __ASSEMBLER__
 
-#define PGSIZE 4096 // bytes per page
+#define PGSIZE 4096 // bytes per page was 4096
 #define PGSHIFT 12  // bits of offset within a page
 
 #define PGROUNDUP(sz)  (((sz)+PGSIZE-1) & ~(PGSIZE-1))

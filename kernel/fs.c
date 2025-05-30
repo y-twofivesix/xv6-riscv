@@ -189,7 +189,7 @@ iinit()
   }
 }
 
-static struct inode* iget(uint dev, uint inum);
+///static struct inode* iget(uint dev, uint inum);
 
 // Allocate an inode on device dev.
 // Mark it as allocated by  giving it type type.
@@ -243,7 +243,7 @@ iupdate(struct inode *ip)
 // Find the inode with number inum on device dev
 // and return the in-memory copy. Does not lock
 // the inode and does not read it from disk.
-static struct inode*
+struct inode*
 iget(uint dev, uint inum)
 {
   struct inode *ip, *empty;
@@ -577,20 +577,19 @@ dirlookup(struct inode *dp, char *name, uint *poff)
 // Write a new directory entry (name, inum) into the directory dp.
 // Returns 0 on success, -1 on failure (e.g. out of disk blocks).
 int
-dirlink(struct inode *dp, char *name, uint inum)
+dirlink(struct inode *dp, char *name, uint inum, uint parentinum, char * dir)
 {
   int off;
   struct dirent de;
   struct inode *ip;
 
-  // Check that name is not present.
   if((ip = dirlookup(dp, name, 0)) != 0){
     iput(ip);
     return -1;
   }
 
-  // Look for an empty dirent.
-  for(off = 0; off < dp->size; off += sizeof(de)){
+  for(off = 0; off < dp->size; off += sizeof(de))
+  {
     if(readi(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
       panic("dirlink read");
     if(de.inum == 0)
@@ -598,10 +597,13 @@ dirlink(struct inode *dp, char *name, uint inum)
   }
 
   strncpy(de.name, name, DIRSIZ);
-  de.inum = inum;
+  strncpy(de.dir, dir, DIRSIZ);
+  de.inum       = inum;
+  de.parentinum = parentinum;        
   if(writei(dp, 0, (uint64)&de, off, sizeof(de)) != sizeof(de))
     return -1;
 
+  
   return 0;
 }
 
@@ -691,46 +693,42 @@ namei(char *path)
 }
 
 
-int 
-iname(const uint inum, char * buf)
+struct inode*
+inamex(char *path, int nameiparent, struct inode *wd)
 {
+  struct inode *ip, *next;
+  char name[DIRSIZ];
+  if(*path == '/')
+    ip = iget(ROOTDEV, ROOTINO);
+  else
+    ip = idup(wd);
 
-    if (inum == ROOTINO) 
-    {
-      strncpy(buf, "/", sizeof("/"));
+  while((path = skipelem(path, name)) != 0){
+    ilock(ip);
+    if(ip->type != T_DIR){
+      iunlockput(ip);
       return 0;
     }
-
-    struct dirent pde;
-    struct inode *ip;
-    if((ip = namei("..")) == 0)
-    {
-      return -1;
+    if(nameiparent && *path == '\0'){
+      // Stop one level early.
+      iunlock(ip);
+      return ip;
     }
-
-    ilock(ip);
-    for(int off = 0; off < ip->size; off += sizeof(pde))
-    {
-      if(readi(ip, 0, (uint64)&pde, off, sizeof(pde)) != sizeof(pde))
-        panic("iname read");
-      if(pde.inum == 0)
-        continue;
-      if(pde.inum == inum){
-        // entry matches path element
-        strncpy(buf, pde.name, sizeof(pde.name));
-        iunlock(ip);
-        return 0;
-      }
+    if((next = dirlookup(ip, name, 0)) == 0){
+      iunlockput(ip);
+      return 0;
     }
-  panic("iname");
-  
+    iunlockput(ip);
+    ip = next;
+  }
+  if(nameiparent){
+    iput(ip);
+    return 0;
+  }
+  return ip;
 }
 
-void 
-inamefull(struct inode* ip, const struct dirent * de, char * buf)
-{
-  
-}
+
 
 struct inode*
 nameiparent(char *path, char *name)

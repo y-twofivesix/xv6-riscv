@@ -6,6 +6,8 @@
         "fs.h": "c",
         "defs.h": "c",
         "sleeplock.h": "c",
-        "file.h": "c"
+        "file.h": "c",
+        "proc.h": "c",
+        "limits": "c"
     }
 }

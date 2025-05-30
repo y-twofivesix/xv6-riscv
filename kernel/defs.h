@@ -36,7 +36,7 @@ int             filewrite(struct file*, uint64, int n);
 
 // fs.c
 void            fsinit(int);
-int             dirlink(struct inode*, char*, uint);
+int             dirlink(struct inode*, char*, uint, uint, char*);
 struct inode*   dirlookup(struct inode*, char*, uint*);
 struct inode*   ialloc(uint, short);
 struct inode*   idup(struct inode*);
@@ -48,7 +48,8 @@ void            iunlockput(struct inode*);
 void            iupdate(struct inode*);
 int             namecmp(const char*, const char*);
 struct inode*   namei(char*);
-int             iname(const uint, char * buf);
+struct inode*   iget(uint dev, uint inum);
+struct inode*   inamex(char *, int, struct inode *);
 struct inode*   nameiparent(char*, char*);
 int             readi(struct inode*, int, uint64, uint, uint);
 void            stati(struct inode*, struct stat*);
@@ -148,6 +149,10 @@ char*           safestrcpy(char*, const char*, int);
 int             strlen(const char*);
 int             strncmp(const char*, const char*, uint);
 char*           strncpy(char*, const char*, int);
+char *          strcat(char *, const char *);
+void            strprep(char *, const char * );
+int             sprintf(char *, char * ,...);
+long            strtol(const char *, char **, register int );
 
 // syscall.c
 void            argint(int, int*);
@@ -186,8 +191,8 @@ void            uvmunmap(pagetable_t, uint64, uint64, int);
 void            uvmclear(pagetable_t, uint64);
 pte_t *         walk(pagetable_t, uint64, int);
 uint64          walkaddr(pagetable_t, uint64);
-int             copyout(pagetable_t, uint64, char *, uint64);
-int             copyin(pagetable_t, char *, uint64, uint64);
+int             copyout(pagetable_t, uint64, void *, uint64);
+int             copyin(pagetable_t, void *, uint64, uint64);
 int             copyinstr(pagetable_t, char *, uint64, uint64);
 
 // plic.c

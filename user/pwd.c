@@ -2,23 +2,30 @@
 #include "user/user.h"
 #include "kernel/fs.h"
 #include "kernel/fcntl.h"
+#include "kernel/stat.h"
 
 void
-getpwd(char *buf)
+getpwd(char (*)[MAXDEPTH][DIRSIZ], int *)
 {
 
-    if (pwd() < 0)
-    {
-      printf("failed to get pwd.\n");
-      return;
-    }
-    printf("%s\n", buf);
+  pwd();
+
 }
+
 
 int
 main(int argc, char *argv[])
 {
-  char buf[DIRSIZ];
-  getpwd(buf);
+
+  char paths[MAXDEPTH][DIRSIZ];
+  int level;
+  getpwd(&paths, &level);
+
+  for (;level>=0;)
+  {
+    printf("%s%s", paths[level], level!=0?"/": "");
+    level--;
+  }
+  printf("\n");
   exit(0);
 }

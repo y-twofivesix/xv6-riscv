@@ -149,7 +149,7 @@ sys_link(void)
   if((dp = nameiparent(new, name)) == 0)
     goto bad;
   ilock(dp);
-  if(dp->dev != ip->dev || dirlink(dp, name, ip->inum) < 0){
+  if(dp->dev != ip->dev || dirlink(dp, name, ip->inum, dp->inum, name) < 0){
     iunlockput(dp);
     goto bad;
   }
@@ -253,7 +253,6 @@ create(char *path, short type, short major, short minor)
 
   ilock(dp);
 
-  // check if directory already exists
   if((ip = dirlookup(dp, name, 0)) != 0){
     iunlockput(dp);
     ilock(ip);
@@ -274,13 +273,18 @@ create(char *path, short type, short major, short minor)
   ip->nlink = 1;
   iupdate(ip);
 
-  if(type == T_DIR){  // Create . and .. entries.
+  if(type == T_DIR)
+  {  
+    // Create . and .. entries.
     // No ip->nlink++ for ".": avoid cyclic ref count.
-    if(dirlink(ip, ".", ip->inum) < 0 || dirlink(ip, "..", dp->inum) < 0)
+    uint parentinum = dp->inum;
+    if(dirlink(ip, ".", ip->inum, parentinum, name) < 0 || dirlink(ip, "..", dp->inum, parentinum, name) < 0)
       goto fail;
+
+    
   }
 
-  if(dirlink(dp, name, ip->inum) < 0)
+  if(dirlink(dp, name, ip->inum, dp->inum, name) < 0)
     goto fail;
 
   if(type == T_DIR){
@@ -509,24 +513,103 @@ uint64
 sys_pwd(void)
 {
 
-  uint64  ap;
+  struct inode *ip;
   struct proc *p = myproc();
+  char paths[MAXDEPTH][DIRSIZ];
+  ip = p->cwd;
+  int level;
 
-  argaddr(0, &ap);
-  uint cwd_inode = p->cwd->inum;
+  uint64  ap0, ap1;
+  argaddr(0, &ap0);
+  argaddr(1, &ap1);
 
-  char pwd[DIRSIZ];
-  if (iname(cwd_inode, pwd) < 0) 
+  if (ip->inum==ROOTINO) 
+  {
+    strncpy(paths[0], "/", sizeof("/")); // for root
+  } 
+  else
+  {
+    while ( ip->inum != ROOTINO)
+    {
+        ilock(ip);
+        struct dirent de;
+        if(readi(ip, 0, (uint64)&de, 0, sizeof(de)) != sizeof(de) )
+        {
+          printf("failed");
+          return -1;
+        }
+          
+        strncpy(paths[level++], de.dir, DIRSIZ);
+        iunlock(ip);
+        ip = iget(p->cwd->dev, de.parentinum);
+    }
+  } 
+
+
+
+  if (copyout(p->pagetable, ap0, &paths, sizeof(paths)) < 0)
   {
     return -1;
   }
 
-  ilock(p->cwd);
-  if (copyout(p->pagetable, ap, pwd, DIRSIZ) < 0)
+  if (copyout(p->pagetable, ap1, &level, sizeof(level)) < 0)
   {
-    iunlock(p->cwd);
     return -1;
   }
-  iunlock(p->cwd);
+
   return 0;
 }
+
+// uint64
+// sys_pwd(void)
+// {
+
+//   uint64  ap1, ap2;
+//   struct proc *p = myproc();
+//   uint inum, parentinum;
+
+//   argaddr(0, &ap1);
+//   argaddr(1, &ap2);
+
+//   char startinumstr[DIRSIZ];
+//   argstr(1, startinumstr, DIRSIZ);
+
+
+//   if ( strncmp(startinumstr, "cwd", 3) == 0 ) {
+//     inum = p->cwd->inum;
+//   } else {
+//     char * endptr;
+//     inum = strtol( startinumstr, &endptr, 10);
+//   }
+  
+//   char pwd[DIRSIZ]; // the inodes current woring directory
+//   parentinum = iname(inum, pwd);
+//   if (parentinum < 0) 
+//   {
+//     return -1;
+//   }
+
+//   ilock(p->cwd);
+
+//   if (copyout(p->pagetable, ap1, pwd, DIRSIZ) < 0)
+//   {
+//     iunlock(p->cwd);
+//     return -1;
+//   }
+
+//   char inumstr[DIRSIZ];
+//   if (parentinum==ROOTINO) {
+//     sprintf(inumstr, "/");
+//   } else {
+//     sprintf(inumstr, "%ld", parentinum);
+//   }
+
+//   if (copyout(p->pagetable, ap2, inumstr, DIRSIZ) < 0)
+//   {
+//     iunlock(p->cwd);
+//     return -1;
+//   }
+
+//   iunlock(p->cwd);
+//   return 0;
+// }
