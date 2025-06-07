@@ -30,6 +30,8 @@ char* strcpy(char*, const char*);
 void *memmove(void*, const void*, int);
 char* strchr(const char*, char c);
 int strcmp(const char*, const char*);
+void strcat(char *, const char *);
+int strtok(const char *, char *, char, int);
 void fprintf(int, const char*, ...) __attribute__ ((format (printf, 2, 3)));
 void printf(const char*, ...) __attribute__ ((format (printf, 1, 2)));
 char* gets(char*, int max);

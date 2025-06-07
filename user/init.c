@@ -9,16 +9,15 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 
-char *argv[] = { "sh", 0 };
+char *argv[] = { "bin/sh", 0 };
 
 int
 main(void)
 {
   int pid, wpid;
-
-  if(open("console", O_RDWR) < 0){
-    mknod("console", CONSOLE, 0);
-    open("console", O_RDWR);
+  if(open("bin/console", O_RDWR) < 0){
+    mknod("bin/console", CONSOLE, 0);
+    open("bin/console", O_RDWR);
   }
   dup(0);  // stdout
   dup(0);  // stderr
@@ -34,7 +33,7 @@ main(void)
     printf("\t\t\t██║██╔══██║██╔══██╗   ██║   ╚██╗ ██╔╝████╔╝██║\n");
     printf("\t\t\t██║██║  ██║██║  ██║   ██║    ╚████╔╝ ╚██████╔╝\n");
     printf("\t\t\t╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝     ╚═══╝   ╚═════╝ \n");
-    printf("\n\n\t\t\tiART dev-kernel version 0.0.0. AART. 2025.");
+    printf("\n\n\t\t\tiART research-kernel v0.0.0. AART. 2025.");
     printf("\n\t\t\tThis is a fork of the xv6 operating system,");
     printf("\n\t\t\ta re-implementation of Dennis Ritchie's and");
     printf("\n\t\t\tKen Thompson's Unix Version 6 (v6).");
@@ -46,7 +45,7 @@ main(void)
       exit(1);
     }
     if(pid == 0){
-      exec("sh", argv);
+      exec("bin/sh", argv);
       printf("init: exec sh failed\n");
       exit(1);
     }

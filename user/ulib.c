@@ -33,6 +33,58 @@ strcmp(const char *p, const char *q)
   return (uchar)*p - (uchar)*q;
 }
 
+void strcat(char *s1, const char *s2) {
+    int i = 0;
+
+    // Move to the end of str1
+    while (s1[i] != '\0')
+        i++;
+
+    // Copy characters from str2 to str1
+    int j = 0;
+    while (s2[j] != '\0') {
+        s1[i] = s2[j];  
+        i++;
+        j++;
+    }
+    // Null-terminate the concatenated string
+    s1[i] = '\0';
+}
+
+
+int strtok(const char * s, char * substr, char delim, int off) {
+  int i = 0, j = 0, n = 0;
+
+  // Move to the nth instance of
+  // delim
+  while (s[i] != '\0') 
+  {
+
+    if (n >= off)
+      break;
+
+    if (s[i] == delim )
+      n++;
+
+    i++;
+    
+  }
+
+
+  // move to ith instance of delim
+  j = i+1;
+  while ( s[j] != delim && s[j] != '\0') 
+  {
+      j++;
+  }
+
+  
+  memcpy( substr, &s[i], j );
+  substr[j] = '\0';
+  return strlen(substr); 
+}
+
+
 uint
 strlen(const char *s)
 {

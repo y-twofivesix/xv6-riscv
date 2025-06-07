@@ -3,6 +3,7 @@
 #include "kernel/types.h"
 #include "user/user.h"
 #include "kernel/fcntl.h"
+#include "kernel/stat.h"
 
 // Parsed command representation
 #define EXEC  1
@@ -54,6 +55,24 @@ void panic(char*);
 struct cmd *parsecmd(char*);
 void runcmd(struct cmd*) __attribute__((noreturn));
 
+
+int search_path(char * path, const char* argv0) 
+{
+  int i = 0;
+  const char * paths = "./\n/bin/";
+  while (strtok(paths, path, '\n', i++) != 0)
+  {
+    strcat(path, argv0);
+    struct stat s;
+    if (stat(path, &s) > 0 || s.type == T_FILE)
+    {
+      return 0;
+    }
+  }
+
+  return -1;
+
+}
 // Execute cmd.  Never returns.
 void
 runcmd(struct cmd *cmd)
@@ -76,7 +95,16 @@ runcmd(struct cmd *cmd)
     ecmd = (struct execcmd*)cmd;
     if(ecmd->argv[0] == 0)
       exit(1);
-    exec(ecmd->argv[0], ecmd->argv);
+
+    
+    char path[50];
+    if ( search_path(path, ecmd->argv[0]) < 0 )
+    {
+      printf("cannot find executable '%s' in PATH\n",  ecmd->argv[0]);
+      break;
+    }
+        
+    exec(path, ecmd->argv);
     fprintf(2, "exec %s failed\n", ecmd->argv[0]);
     break;
 

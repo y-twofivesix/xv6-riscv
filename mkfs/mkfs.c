@@ -65,6 +65,33 @@ xint(uint x)
   return y;
 }
 
+uint dir(uint pinum, struct dirent de, char * name)
+{
+  uint binino = ialloc(T_DIR);
+
+  bzero(&de, sizeof(de));
+  de.inum = xshort(binino);
+  de.parentinum = xshort(pinum);
+  strncpy(de.name, name, DIRSIZ);
+  iappend(pinum, &de, sizeof(de));
+
+      // bin directory items
+      bzero(&de, sizeof(de));
+      de.inum = xshort(binino);
+      de.parentinum = xshort(pinum);
+      strcpy(de.name, ".");
+      strcpy(de.dir, name);
+      iappend(binino, &de, sizeof(de));
+
+      bzero(&de, sizeof(de));
+      de.inum = xshort(pinum);
+      de.parentinum = xshort(pinum);
+      strcpy(de.name, "..");
+      iappend(binino, &de, sizeof(de));
+
+      return binino;
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -128,6 +155,9 @@ main(int argc, char *argv[])
   strcpy(de.name, "..");
   iappend(rootino, &de, sizeof(de));
 
+  // create bin directory
+  uint bininode = dir(rootino, de, "bin");
+
   for(i = 2; i < argc; i++){
     // get rid of "user/"
     char *shortname;
@@ -155,7 +185,12 @@ main(int argc, char *argv[])
     bzero(&de, sizeof(de));
     de.inum = xshort(inum);
     strncpy(de.name, shortname, DIRSIZ);
-    iappend(rootino, &de, sizeof(de));
+
+    if (strcmp(shortname, "init") == 0) {
+      iappend(rootino, &de, sizeof(de));
+    } else {
+      iappend(bininode, &de, sizeof(de));
+    }
 
     while((cc = read(fd, buf, sizeof(buf))) > 0)
       iappend(inum, buf, cc);

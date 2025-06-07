@@ -193,17 +193,16 @@ consoleintr(int c, int next)
     escaped++;
     escaped %= MAX_ESC_STAGES + 1;
 
-  
   } else {
 
-  switch(c){
+  switch(c) {
   case ESCAPE:
     escaped = 1;
     break;
   case C('P'):  // Print process list.
     procdump();
     break;
-  case C('C'):  // Kill line.
+  case C('C'):  // Kill line / process.
     while(cons.e != cons.w &&
       cons.buf[(cons.e-1) % INPUT_BUF_SIZE] != '\n'){
       cons.e--;

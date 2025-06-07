@@ -8,6 +8,7 @@
         "sleeplock.h": "c",
         "file.h": "c",
         "proc.h": "c",
-        "limits": "c"
+        "limits": "c",
+        "stat.h": "c"
     }
 }
