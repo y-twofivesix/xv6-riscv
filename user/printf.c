@@ -31,11 +31,44 @@ printint(int fd, int xx, int base, int sgn)
   do{
     buf[i++] = digits[x % base];
   }while((x /= base) != 0);
+
   if(neg)
     buf[i++] = '-';
 
   while(--i >= 0)
     putc(fd, buf[i]);
+}
+
+static void
+sprintint(int xx, int base, int sgn, char * buf)
+{
+  
+  int i, neg;
+  uint x;
+  char rbuf[16];
+
+  neg = 0;
+  if(sgn && xx < 0){
+    neg = 1;
+    x = -xx;
+  } else {
+    x = xx;
+  }
+
+  i = 0;
+
+
+  do {
+    rbuf[i++] = digits[x % base];
+  } while((x /= base) != 0);
+
+  if(neg)
+    rbuf[i++] = '-';
+
+  int j = 0;
+  while(--i >= 0)
+    buf[j++] = rbuf[i];
+
 }
 
 static void
@@ -154,4 +187,105 @@ printf(const char *fmt, ...)
 
   va_start(ap, fmt);
   vprintf(1, fmt, ap);
+}
+
+
+// Print to the given fd. Only understands %d, %x, %p, %s.
+void
+vsprintf(char * dest, const char *fmt, va_list ap)
+{
+
+  char *s;
+  int c0, c1, c2, i, state;
+  char buf[64] = {};
+  int j = 0;
+
+  state = 0;
+  for(i = 0; fmt[i]; i++)
+  {
+    c0 = fmt[i] & 0xff;
+    if(state == 0){
+      if(c0 == '%'){
+        state = '%';
+      } else {
+        buf[j++] = c0;
+      }
+    } else if(state == '%') {
+      c1 = c2 = 0;
+      if(c0) c1 = fmt[i+1] & 0xff;
+      if(c1) c2 = fmt[i+2] & 0xff;
+      if(c0 == 'd'){
+        char intbuf[16];
+        sprintint(va_arg(ap, int), 10, 1, intbuf);
+        strcat(buf, intbuf);
+        j++;
+      } else if(c0 == 'l' && c1 == 'd'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 10, 1, intbuf);
+        strcat(buf, intbuf);
+        i += 1;
+      } else if(c0 == 'l' && c1 == 'l' && c2 == 'd'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 10, 1, intbuf);
+        strcat(buf, intbuf);
+        i += 2;
+      } else if(c0 == 'u'){
+        char intbuf[16];
+        sprintint(va_arg(ap, int), 10, 0, intbuf);
+        strcat(buf, intbuf);
+      } else if(c0 == 'l' && c1 == 'u'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 10, 0, intbuf);
+        strcat(buf, intbuf);
+        i += 1;
+      } else if(c0 == 'l' && c1 == 'l' && c2 == 'u'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 10, 0, intbuf);
+        strcat(buf, intbuf);
+        i += 2;
+      } else if(c0 == 'x'){
+        char intbuf[16];
+        sprintint(va_arg(ap, int), 16, 0, buf);
+        strcat(buf, intbuf);
+      } else if(c0 == 'l' && c1 == 'x'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 16, 0, buf);
+        strcat(buf, intbuf);
+        i += 1;
+      } else if(c0 == 'l' && c1 == 'l' && c2 == 'x'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 16, 0, buf);
+        strcat(buf, intbuf);
+        i += 2;
+      } else if(c0 == 'p'){
+        // TODO
+        // strcat(buf, sprintptr(va_arg(ap, uint64)));
+      } else if(c0 == 's'){
+
+        if((s = va_arg(ap, char*)) == 0)
+          s = "(null)";
+        for(; *s; s++)
+          buf[j++] = *s;
+        //strcat(buf, s);
+
+      } else if(c0 == '%'){
+        buf[i++] = '%';
+      } else {
+        // Unknown % sequence.  Print it to draw attention.
+        buf[i++] = '%';
+        buf[i++] = c0;
+      }
+      state = 0;
+    }
+  }
+  strcpy(dest, buf);
+}
+
+void
+sprintf( char * dest, const char *fmt, ...)
+{
+  va_list ap;
+
+  va_start(ap, fmt);
+  vsprintf(dest, fmt, ap);
 }

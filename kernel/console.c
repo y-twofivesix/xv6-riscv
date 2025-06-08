@@ -36,7 +36,8 @@ static int escaped = 0;
 void
 consputc(int c)
 {
-  if(c == BACKSPACE){
+  if(c == BACKSPACE)
+  {
     // if the user typed backspace, overwrite with a space.
     uartputc_sync('\b'); uartputc_sync(' '); uartputc_sync('\b');
   } else {
@@ -135,7 +136,9 @@ consoleread(int user_dst, uint64 dst, int n)
 // wake up consoleread() if a whole line has arrived.
 //
 
-void handle_esc_key_down(int c) {
+void handle_esc_key_down(int c)
+{
+
   switch (c)
   {
   case UP:
@@ -153,8 +156,7 @@ void handle_esc_key_down(int c) {
   default:
     break;
   }
-  
-      
+
 }
 
 
@@ -196,6 +198,8 @@ consoleintr(int c, int next)
   } else {
 
   switch(c) {
+  case SHIFT:
+    break;
   case ESCAPE:
     escaped = 1;
     break;

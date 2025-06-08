@@ -3,9 +3,10 @@
 #include "kernel/fs.h"
 #include "kernel/fcntl.h"
 #include "kernel/stat.h"
+#include "kernel/param.h"
 
 void
-getpwd(char (*)[MAXDEPTH][DIRSIZ], int *)
+getpwd(char *)
 {
 
   pwd();
@@ -17,15 +18,8 @@ int
 main(int argc, char *argv[])
 {
 
-  char paths[MAXDEPTH][DIRSIZ];
-  int level;
-  getpwd(&paths, &level);
-
-  for (;level>=0;)
-  {
-    printf("%s%s", paths[level], level!=0?"/": "");
-    level--;
-  }
-  printf("\n");
+  char path[MAXPATH];
+  getpwd(path);
+  printf("%s\n", path);  
   exit(0);
 }

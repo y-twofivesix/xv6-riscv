@@ -9,6 +9,7 @@
         "file.h": "c",
         "proc.h": "c",
         "limits": "c",
-        "stat.h": "c"
+        "stat.h": "c",
+        "param.h": "c"
     }
 }

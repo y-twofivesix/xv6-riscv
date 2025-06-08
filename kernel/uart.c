@@ -177,6 +177,7 @@ void
 uartintr(void)
 {
   // read and process incoming characters.
+
   int c = uartgetc();
   while(c != -1){
     int next = uartgetc();

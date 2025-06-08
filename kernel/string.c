@@ -259,95 +259,137 @@ strtol(const char *nptr, char **endptr, register int base)
 
 
 #include <stdarg.h>
-
 static char digits[] = "0123456789abcdef";
-static void
-sprintint(long long xx, int base, int sign, char * buf)
-{
-  char innerbuf[16];
-  int i;
-  unsigned long long x;
 
-  if(sign && (sign = (xx < 0)))
+static void
+sprintint(int xx, int base, int sgn, char * buf)
+{
+  
+  int i, neg;
+  uint x;
+  char rbuf[16];
+
+  neg = 0;
+  if(sgn && xx < 0){
+    neg = 1;
     x = -xx;
-  else
+  } else {
     x = xx;
+  }
 
   i = 0;
+
+
   do {
-    innerbuf[i++] = digits[x % base];
+    rbuf[i++] = digits[x % base];
   } while((x /= base) != 0);
 
-  if(sign)
-    innerbuf[i++] = '-';
+  if(neg)
+    rbuf[i++] = '-';
 
   int j = 0;
   while(--i >= 0)
-    buf[j++] = innerbuf[i];
+    buf[j++] = rbuf[i];
+
 }
 
-int
-sprintf(char * buf, char *fmt,...)
+
+// Print to the given fd. Only understands %d, %x, %p, %s.
+void
+vsprintf(char * dest, const char *fmt, va_list ap)
+{
+
+  char *s;
+  int c0, c1, c2, i, state;
+  char buf[64] = {};
+  int j = 0;
+
+  state = 0;
+  for(i = 0; fmt[i]; i++)
+  {
+    c0 = fmt[i] & 0xff;
+    if(state == 0){
+      if(c0 == '%'){
+        state = '%';
+      } else {
+        buf[j++] = c0;
+      }
+    } else if(state == '%') {
+      c1 = c2 = 0;
+      if(c0) c1 = fmt[i+1] & 0xff;
+      if(c1) c2 = fmt[i+2] & 0xff;
+      if(c0 == 'd'){
+        char intbuf[16];
+        sprintint(va_arg(ap, int), 10, 1, intbuf);
+        strcat(buf, intbuf);
+        j++;
+      } else if(c0 == 'l' && c1 == 'd'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 10, 1, intbuf);
+        strcat(buf, intbuf);
+        i += 1;
+      } else if(c0 == 'l' && c1 == 'l' && c2 == 'd'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 10, 1, intbuf);
+        strcat(buf, intbuf);
+        i += 2;
+      } else if(c0 == 'u'){
+        char intbuf[16];
+        sprintint(va_arg(ap, int), 10, 0, intbuf);
+        strcat(buf, intbuf);
+      } else if(c0 == 'l' && c1 == 'u'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 10, 0, intbuf);
+        strcat(buf, intbuf);
+        i += 1;
+      } else if(c0 == 'l' && c1 == 'l' && c2 == 'u'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 10, 0, intbuf);
+        strcat(buf, intbuf);
+        i += 2;
+      } else if(c0 == 'x'){
+        char intbuf[16];
+        sprintint(va_arg(ap, int), 16, 0, buf);
+        strcat(buf, intbuf);
+      } else if(c0 == 'l' && c1 == 'x'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 16, 0, buf);
+        strcat(buf, intbuf);
+        i += 1;
+      } else if(c0 == 'l' && c1 == 'l' && c2 == 'x'){
+        char intbuf[16];
+        sprintint(va_arg(ap, uint64), 16, 0, buf);
+        strcat(buf, intbuf);
+        i += 2;
+      } else if(c0 == 'p'){
+        // TODO
+        // strcat(buf, sprintptr(va_arg(ap, uint64)));
+      } else if(c0 == 's'){
+
+        if((s = va_arg(ap, char*)) == 0)
+          s = "(null)";
+        for(; *s; s++)
+          buf[j++] = *s;
+        //strcat(buf, s);
+
+      } else if(c0 == '%'){
+        buf[i++] = '%';
+      } else {
+        // Unknown % sequence.  Print it to draw attention.
+        buf[i++] = '%';
+        buf[i++] = c0;
+      }
+      state = 0;
+    }
+  }
+  safestrcpy(dest, buf, sizeof(buf));
+}
+
+void
+sprintf( char * dest, const char *fmt, ...)
 {
   va_list ap;
-  int i, cx, c0, c1, c2;
-  // char *s;
 
   va_start(ap, fmt);
-  for(i = 0; (cx = fmt[i] & 0xff) != 0; i++){
-    if(cx != '%'){
-      buf[i] = cx;
-      continue;
-    }
-    i++;
-    c0 = fmt[i+0] & 0xff;
-    c1 = c2 = 0;
-    if(c0) c1 = fmt[i+1] & 0xff;
-    if(c1) c2 = fmt[i+2] & 0xff;
-    if(c0 == 'd'){
-      sprintint(va_arg(ap, int), 10, 1, buf);
-    } else if(c0 == 'l' && c1 == 'd'){
-      sprintint(va_arg(ap, uint64), 10, 1, buf);
-      i += 1;
-    } else if(c0 == 'l' && c1 == 'l' && c2 == 'd'){
-      sprintint(va_arg(ap, uint64), 10, 1, buf);
-      i += 2;
-    } else if(c0 == 'u'){
-      sprintint(va_arg(ap, int), 10, 0, buf);
-    } else if(c0 == 'l' && c1 == 'u'){
-      sprintint(va_arg(ap, uint64), 10, 0, buf);
-      i += 1;
-    } else if(c0 == 'l' && c1 == 'l' && c2 == 'u'){
-      sprintint(va_arg(ap, uint64), 10, 0, buf);
-      i += 2;
-    } else if(c0 == 'x'){
-      sprintint(va_arg(ap, int), 16, 0, buf);
-    } else if(c0 == 'l' && c1 == 'x'){
-      sprintint(va_arg(ap, uint64), 16, 0, buf);
-      i += 1;
-    } else if(c0 == 'l' && c1 == 'l' && c2 == 'x'){
-      sprintint(va_arg(ap, uint64), 16, 0, buf);
-      i += 2;
-    
-    // } else if(c0 == 'p'){
-    //   printptr(va_arg(ap, uint64));
-    // } else if(c0 == 's'){
-    //   if((s = va_arg(ap, char*)) == 0)
-    //     s = "(null)";
-    //   for(; *s; s++)
-    //     consputc(*s);
-    // } else if(c0 == '%'){
-    //   consputc('%');
-    } else if(c0 == 0){
-      break;
-    } else {
-      // Print unknown % sequence to draw attention.
-      // consputc('%');
-      // consputc(c0);
-    }
-
-  }
-  va_end(ap);
-
-  return 0;
+  vsprintf(dest, fmt, ap);
 }

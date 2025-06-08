@@ -4,6 +4,8 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 #include "kernel/stat.h"
+#include "kernel/fs.h"
+#include "kernel/param.h"
 
 // Parsed command representation
 #define EXEC  1
@@ -55,7 +57,6 @@ void panic(char*);
 struct cmd *parsecmd(char*);
 void runcmd(struct cmd*) __attribute__((noreturn));
 
-
 int search_path(char * path, const char* argv0) 
 {
   int i = 0;
@@ -71,8 +72,8 @@ int search_path(char * path, const char* argv0)
   }
 
   return -1;
-
 }
+
 // Execute cmd.  Never returns.
 void
 runcmd(struct cmd *cmd)
@@ -100,10 +101,10 @@ runcmd(struct cmd *cmd)
     char path[50];
     if ( search_path(path, ecmd->argv[0]) < 0 )
     {
-      printf("cannot find executable '%s' in PATH\n",  ecmd->argv[0]);
+      printf("executable '%s' is not in PATH\n",  ecmd->argv[0]);
       break;
     }
-        
+
     exec(path, ecmd->argv);
     fprintf(2, "exec %s failed\n", ecmd->argv[0]);
     break;
@@ -159,10 +160,27 @@ runcmd(struct cmd *cmd)
   exit(0);
 }
 
-int
-getcmd(char *buf, int nbuf)
+void
+getpwd(char *)
 {
-  write(2, "* ", 2);
+  pwd();
+}
+
+int
+getcmd(char
+   *buf, int nbuf)
+{
+
+  
+  char path[MAXPATH];
+  getpwd(path);
+
+  char promptstr[MAXPATH];
+  sprintf(promptstr, "%s %s", path, " > ");
+
+  write(2, promptstr, strlen(promptstr));
+
+
   memset(buf, 0, nbuf);
   gets(buf, nbuf);
   if(buf[0] == 0) // EOF

@@ -85,6 +85,7 @@ void            printfinit(void);
 
 #define BACKSPACE 0x100
 #define ESCAPE    0x1B
+#define SHIFT     0x00
 #define LEFT      0x44
 #define RIGHT     0x43
 #define UP        0x41
@@ -151,7 +152,7 @@ int             strncmp(const char*, const char*, uint);
 char*           strncpy(char*, const char*, int);
 char *          strcat(char *, const char *);
 void            strprep(char *, const char * );
-int             sprintf(char *, char * ,...);
+void            sprintf( char * dest, const char *fmt, ...);
 long            strtol(const char *, char **, register int );
 
 // syscall.c

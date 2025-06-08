@@ -519,9 +519,8 @@ sys_pwd(void)
   ip = p->cwd;
   int level;
 
-  uint64  ap0, ap1;
+  uint64  ap0;
   argaddr(0, &ap0);
-  argaddr(1, &ap1);
 
   if (ip->inum==ROOTINO) 
   {
@@ -545,14 +544,19 @@ sys_pwd(void)
     }
   } 
 
-
-
-  if (copyout(p->pagetable, ap0, &paths, sizeof(paths)) < 0)
+   char path[MAXPATH]={};
+   int j = 0;
+  for (;level>=0;)
   {
-    return -1;
+    for(char * s = paths[level]; *s; s++)
+      path[j++] = *s;
+
+    if (level != 0)
+      path[j++] = '/';
+    level--;
   }
 
-  if (copyout(p->pagetable, ap1, &level, sizeof(level)) < 0)
+  if (copyout(p->pagetable, ap0, &path, sizeof(path)) < 0)
   {
     return -1;
   }

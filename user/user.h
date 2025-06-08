@@ -34,6 +34,7 @@ void strcat(char *, const char *);
 int strtok(const char *, char *, char, int);
 void fprintf(int, const char*, ...) __attribute__ ((format (printf, 2, 3)));
 void printf(const char*, ...) __attribute__ ((format (printf, 1, 2)));
+void sprintf( char *, const char*, ...) __attribute__ ((format (printf, 2, 3)));
 char* gets(char*, int max);
 uint strlen(const char*);
 void* memset(void*, int, uint);
