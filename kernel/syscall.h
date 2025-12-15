@@ -21,3 +21,5 @@
 #define SYS_mkdir  20
 #define SYS_close  21
 #define SYS_pwd    22
+#define SYS_send   23
+#define SYS_recv   24

@@ -24,6 +24,7 @@ OBJS = \
   $K/sleeplock.o \
   $K/file.o \
   $K/pipe.o \
+  $K/ipc.o \
   $K/exec.o \
   $K/sysfile.o \
   $K/kernelvec.o \
@@ -139,7 +140,8 @@ UPROGS=\
 	$U/_wc\
 	$U/_zombie\
 	$U/_pwd\
-	$U/_clear
+	$U/_clear\
+	$U/_ipctest
 
 .PHONY: fs.img
 fs.img: mkfs/mkfs README $(UPROGS)

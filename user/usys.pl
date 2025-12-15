@@ -37,3 +37,6 @@ entry("sbrk");
 entry("sleep");
 entry("uptime");
 entry("pwd");
+entry("send");
+entry("recv");
+

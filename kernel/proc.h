@@ -104,4 +104,14 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+  
+  // IPC Mailbox
+  struct spinlock ipc_lock;
+  struct ipc_msg {
+    int sender_pid;
+    char data[64];
+  } msg_queue[8];
+  int msg_qlen;
+  int msg_qhead;
+  int msg_qtail;
 };

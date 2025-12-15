@@ -78,6 +78,11 @@ void            pipeclose(struct pipe*, int);
 int             piperead(struct pipe*, uint64, int);
 int             pipewrite(struct pipe*, uint64, int);
 
+// ipc.c
+int             ipc_send(int, char*, int);
+int             ipc_recv(int*, char*, int);
+
+
 // printf.c
 int             printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
 void            panic(char*) __attribute__((noreturn));
