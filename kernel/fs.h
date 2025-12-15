@@ -51,7 +51,7 @@ struct dinode {
 #define BBLOCK(b, sb) ((b)/BPB + sb.bmapstart)
 
 // Directory is a file containing a sequence of dirent structures.
-#define DIRSIZ    30
+#define DIRSIZ    14
 #define MAXDEPTH  32
 
 struct dirent 

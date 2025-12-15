@@ -3,6 +3,23 @@
 #include "kernel/fcntl.h"
 #include "user/user.h"
 
+
+#define BACKSPACE 0x100
+#define ESCAPE    0x1B
+#define SHIFT     0x00
+#define LEFT      0x44
+#define RIGHT     0x43
+#define UP        0x41
+#define DOWN      0x42
+#define PARENTH_O 0x5B
+
+#define CLEAR_SCREEN()  printf("\033[2J")
+#define GOTO_XY(x,y)    printf("\033[%d;%dH", (y), (x))
+#define MOVE_UP(x)      printf("\033[%dA", (x)) // Move up X lines;
+#define MOVE_DOWN(x)    printf("\033[%dB", (x)) // Move down X lines;
+#define MOVE_RIGHT(x)   printf("\033[%dC", (x)) // Move right X column;
+#define MOVE_LEFT(x)    printf("\033[%dD", (x)) // Move left X column;
+
 //
 // wrapper so that it's OK if main() does not call exit().
 //
@@ -115,14 +132,14 @@ strchr(const char *s, char c)
   return 0;
 }
 
-
 char*
 gets(char *buf, int max)
 {
   int i, cc;
   char c;
 
-  for(i=0; i+1 < max; ){
+  for(i=0; i+1 < max; )
+  {
     cc = read(0, &c, 1);
     if(cc < 1)
       break;

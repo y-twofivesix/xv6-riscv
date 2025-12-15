@@ -4,10 +4,10 @@
 // Implements special input characters:
 //   newline -- end of line
 //   control-h -- backspace
-//   control-c -- kill line
+//   control-u -- kill line
 //   control-d -- end of file
 //   control-p -- print process list
-//   control-u -- clear screen
+//
 
 #include <stdarg.h>
 
@@ -22,11 +22,8 @@
 #include "defs.h"
 #include "proc.h"
 
-
+#define BACKSPACE 0x100
 #define C(x)  ((x)-'@')  // Control-x
-
-#define MAX_ESC_STAGES  2
-static int escaped = 0;
 
 //
 // send one character to the uart.
@@ -36,8 +33,7 @@ static int escaped = 0;
 void
 consputc(int c)
 {
-  if(c == BACKSPACE)
-  {
+  if(c == BACKSPACE){
     // if the user typed backspace, overwrite with a space.
     uartputc_sync('\b'); uartputc_sync(' '); uartputc_sync('\b');
   } else {
@@ -135,87 +131,21 @@ consoleread(int user_dst, uint64 dst, int n)
 // do erase/kill processing, append to cons.buf,
 // wake up consoleread() if a whole line has arrived.
 //
-
-void handle_esc_key_down(int c)
-{
-
-  switch (c)
-  {
-  case UP:
-    MOVE_UP(1);
-    break;
-  case DOWN:
-    MOVE_DOWN(1);
-    break;
-  case LEFT:
-    MOVE_LEFT(1);
-      break;
-  case RIGHT:
-    MOVE_RIGHT(1);
-      break;
-  default:
-    break;
-  }
-
-}
-
-
-void escape_stage_1(int c, int next) {
-      switch (c)
-      {
-      case PARENTH_O:
-        if ( next != -1 ) {
-          handle_esc_key_down(next);
-        }
-        break;
-      
-      default:
-        break;
-      }
-}
-
-
 void
-consoleintr(int c, int next)
+consoleintr(int c)
 {
   acquire(&cons.lock);
 
-  if (escaped) {
-    switch (escaped)
-    {
-    case (1):
-      // handle escape sequence
-      escape_stage_1(c, next);
-      break;
-
-    default:
-      break;
-    }
-
-    escaped++;
-    escaped %= MAX_ESC_STAGES + 1;
-
-  } else {
-
-  switch(c) {
-  case SHIFT:
-    break;
-  case ESCAPE:
-    escaped = 1;
-    break;
+  switch(c){
   case C('P'):  // Print process list.
     procdump();
     break;
-  case C('C'):  // Kill line / process.
+  case C('U'):  // Kill line.
     while(cons.e != cons.w &&
-      cons.buf[(cons.e-1) % INPUT_BUF_SIZE] != '\n'){
+          cons.buf[(cons.e-1) % INPUT_BUF_SIZE] != '\n'){
       cons.e--;
       consputc(BACKSPACE);
     }
-    break;
-  case C('U'):  // clear screen.
-    CLEAR_SCREEN();
-    printf("\033[999;999H\033[6n\033[H");
     break;
   case C('H'): // Backspace
   case '\x7f': // Delete key
@@ -224,29 +154,18 @@ consoleintr(int c, int next)
       consputc(BACKSPACE);
     }
     break;
-  case LEFT:
-    consputc(c);
-    break;
-  case RIGHT:
-    consputc(c);
-    break;
-  case UP:
-    consputc(c);
-    break;
-  case DOWN:
-    consputc(c);
-    break;
   default:
     if(c != 0 && cons.e-cons.r < INPUT_BUF_SIZE){
       c = (c == '\r') ? '\n' : c;
-      
+
       // echo back to the user.
       consputc(c);
 
       // store for consumption by consoleread().
       cons.buf[cons.e++ % INPUT_BUF_SIZE] = c;
 
-      if(c == '\n' || c == C('D') || cons.e-cons.r == INPUT_BUF_SIZE ){
+      if(c == '\n' || c == C('D') || cons.e-cons.r == INPUT_BUF_SIZE)
+      {
         // wake up consoleread() if a whole line (or end-of-file)
         // has arrived.
         cons.w = cons.e;
@@ -255,9 +174,6 @@ consoleintr(int c, int next)
     }
     break;
   }
-  
-  }
-
   release(&cons.lock);
 }
 
@@ -265,11 +181,10 @@ void
 consoleinit(void)
 {
   initlock(&cons.lock, "cons");
-
   uartinit();
 
   // connect read and write system calls
   // to consoleread and consolewrite.
-  devsw[CONSOLE].read   = consoleread;
-  devsw[CONSOLE].write  = consolewrite;
+  devsw[CONSOLE].read = consoleread;
+  devsw[CONSOLE].write = consolewrite;
 }

@@ -26,19 +26,19 @@ main(void)
 
     printf("\033[2J");            // clear screen
     printf("\033[%d;%dH", 0, 0);  // goto 0,0
-    printf("\n\033[90;1m");
+    printf("\n\033[37m");
     printf("\t    █████╗ ██████╗ ████████╗          ██████╗ \n");
     printf("\t██╗██╔══██╗██╔══██╗╚══██╔══╝██╗   ██╗██╔═████╗\n");
     printf("\t██║███████║██████╔╝   ██║   ██║   ██║██║██╔██║\n");
     printf("\t██║██╔══██║██╔══██╗   ██║   ╚██╗ ██╔╝████╔╝██║\n");
     printf("\t██║██║  ██║██║  ██║   ██║    ╚████╔╝ ╚██████╔╝\n");
     printf("\t╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝     ╚═══╝   ╚═════╝ \n");
-    printf("\033[m"); 
 
     printf("\n\tiART research-kernel v0.0.0. AART. 2025.");
     printf("\n\tThis is a fork of the xv6 operating system,");
     printf("\n\ta re-implementation of Dennis Ritchie's and");
     printf("\n\tKen Thompson's Unix Version 6 (v6).");
+    printf("\033[m"); 
     printf("\n"); 
 
 

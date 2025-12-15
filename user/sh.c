@@ -171,21 +171,19 @@ getcmd(char
    *buf, int nbuf)
 {
 
-  
   char path[MAXPATH];
   getpwd(path);
 
   char promptstr[MAXPATH];
-  sprintf(promptstr, "%s %s", path, " > ");
-
+  sprintf(promptstr,"\033[37m{ %s }\033[m ", path);
   write(2, promptstr, strlen(promptstr));
-
 
   memset(buf, 0, nbuf);
   gets(buf, nbuf);
   if(buf[0] == 0) // EOF
     return -1;
   return 0;
+  
 }
 
 int
@@ -203,9 +201,11 @@ main(void)
   }
 
   // Read and run input commands.
-  while(getcmd(buf, sizeof(buf)) >= 0){
+  while(getcmd(buf, sizeof(buf)) >= 0)
+  {
 
-    if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' '){
+    if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' ')
+    {
       // Chdir must be called by the parent, not the child.
       buf[strlen(buf)-1] = 0;  // chop \n
       if(chdir(buf+3) < 0)

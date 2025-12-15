@@ -24,7 +24,7 @@ fmtname(char *path)
 }
 
 void
-ls(char *path)
+ls(char *path, int verbose)
 {
   char buf[512], *p;
   int fd;
@@ -66,8 +66,17 @@ ls(char *path)
         printf("ls: cannot stat %s\n", buf);
         continue;
       }
-      printf(" %s\t%d\t%d\t%d\n", fmtname(buf), st.type, st.ino, (int) st.size);
+      
+      if (st.type == T_DIR)
+        printf("\033[1;35m");
+
+      if (verbose)
+        printf(" %s\033[m\t%d\t%d\t%d\n", fmtname(buf), st.type, st.ino, (int) st.size);
+      else
+        printf("%s\033[m ", fmtname(buf));
+      printf("\033[m");
     }
+    printf("\n");
     break;
   }
   close(fd);
@@ -77,12 +86,30 @@ int
 main(int argc, char *argv[])
 {
   int i;
+  int v = 0;
+  int flags[argc];
 
-  if(argc < 2){
-    ls(".");
+  if(argc < 2)
+  {
+    ls(".", v);
     exit(0);
   }
+
+  for(int j=1; j < argc; j++)
+  {
+      if(!strcmp(argv[j], "-v"))
+      {
+        v = 1;
+        flags[j] = 1;
+      }
+  }
+
   for(i=1; i<argc; i++)
-    ls(argv[i]);
+  {
+    if (!flags[i])
+        ls(argv[i], v);
+  }
+    
   exit(0);
+
 }
