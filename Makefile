@@ -10,6 +10,7 @@ OBJS = \
   $K/kalloc.o \
   $K/spinlock.o \
   $K/string.o \
+  $K/wm.o \
   $K/main.o \
   $K/vm.o \
   $K/proc.o \
@@ -141,7 +142,8 @@ UPROGS=\
 	$U/_zombie\
 	$U/_pwd\
 	$U/_clear\
-	$U/_ipctest
+	$U/_ipctest\
+	$U/_rio
 
 .PHONY: fs.img
 fs.img: mkfs/mkfs README $(UPROGS)

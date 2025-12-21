@@ -9,7 +9,7 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 
-char *argv[] = { "/bin/sh", 0 };
+char *argv[] = { "/bin/rio", 0 };
 
 int
 main(void)
@@ -19,6 +19,12 @@ main(void)
     mknod("/bin/console", CONSOLE, 0);
     open("/bin/console", O_RDWR);
   }
+  mknod("/bin/winctl", WM, 0);
+  mknod("/bin/win1", WM, 1);
+  mknod("/bin/win2", WM, 2);
+  mknod("/bin/win3", WM, 3);
+  mknod("/bin/win4", WM, 4);
+
   dup(0);  // stdout
   dup(0);  // stderr
 
@@ -48,8 +54,8 @@ main(void)
       exit(1);
     }
     if(pid == 0){
-      exec("/bin/sh", argv);
-      printf("init: exec sh failed\n");
+      exec("/bin/rio", argv);
+      printf("init: exec rio failed\n");
       exit(1);
     }
 

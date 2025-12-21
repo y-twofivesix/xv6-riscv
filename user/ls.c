@@ -67,16 +67,12 @@ ls(char *path, int verbose)
         continue;
       }
       
-      if (st.type == T_DIR)
-        printf("\033[1;35m");
-
       if (verbose)
-        printf(" %s\033[m\t%d\t%d\t%d\n", fmtname(buf), st.type, st.ino, (int) st.size);
+        printf("%s %s\x1b[m\t%d\t%d\t%d\n", (st.type == T_DIR ? "\x1b[1;35m" : ""), fmtname(buf), st.type, st.ino, (int) st.size);
       else
-        printf("%s\033[m ", fmtname(buf));
-      printf("\033[m");
+        printf("%s%s\x1b[m ", (st.type == T_DIR ? "\x1b[1;35m" : ""), fmtname(buf));
+      printf("\n");
     }
-    printf("\n");
     break;
   }
   close(fd);

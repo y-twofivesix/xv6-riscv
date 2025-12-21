@@ -6,10 +6,24 @@
 
 static char digits[] = "0123456789ABCDEF";
 
+static char pbuf[512];
+static int pidx = 0;
+
+static void
+flush(int fd)
+{
+  if(pidx > 0){
+    write(fd, pbuf, pidx);
+    pidx = 0;
+  }
+}
+
 static void
 putc(int fd, char c)
 {
-  write(fd, &c, 1);
+  if(pidx >= sizeof(pbuf))
+    flush(fd);
+  pbuf[pidx++] = c;
 }
 
 static void
@@ -169,6 +183,7 @@ vprintf(int fd, const char *fmt, va_list ap)
       state = 0;
     }
   }
+  flush(fd);
 }
 
 void

@@ -21,6 +21,8 @@ void            bunpin(struct buf*);
 void            consoleinit(void);
 void            consoleintr(int);
 void            consputc(int);
+int             consoleread(int, uint64, int, int);
+int             consolewrite(int, uint64, int, int);
 
 // exec.c
 int             exec(char*, char**);
@@ -81,6 +83,13 @@ int             pipewrite(struct pipe*, uint64, int);
 // ipc.c
 int             ipc_send(int, char*, int);
 int             ipc_recv(int*, char*, int);
+
+// wm.c
+void            wminit(void);
+void            wmintr(int);
+int             wmread(int, uint64, int, int);
+int             wmwrite(int, uint64, int, int);
+void            wm_switch(int);
 
 
 // printf.c

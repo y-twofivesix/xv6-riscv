@@ -175,7 +175,7 @@ getcmd(char
   getpwd(path);
 
   char promptstr[MAXPATH];
-  sprintf(promptstr,"\033[37m{ %s }\033[m ", path);
+  sprintf(promptstr,"\033[37m< %s >\033[m ", path);
   write(2, promptstr, strlen(promptstr));
 
   memset(buf, 0, nbuf);
