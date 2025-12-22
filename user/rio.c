@@ -7,6 +7,9 @@
 #define SCREEN_W 1280
 #define SCREEN_H 800
 
+#define BACK_COLOR (uint)0xFF003333
+#define CURSOR_COLOR (uint)0xFF00FFFFFF
+
 // Input Event Codes
 #define EV_ABS 0x03
 #define EV_KEY 0x01
@@ -98,6 +101,7 @@ Window *drag_win = 0;
 int drag_off_x, drag_off_y;
 Window *focus_win = 0;
 
+void update_title_colors();
 // Text Drawing
 // Helper to draw char at specific pixel location
 void
@@ -134,22 +138,24 @@ redraw_line(Window *w, int r)
         int py = base_py;
         char ch = t->display[r][c];
         
+        // Determine colors based on focus
+        uint text_color = (w == focus_win) ? 0xFFFFFFFF : 0xFF888888; // White or grey
+        uint cursor_color = (w == focus_win) ? 0xFF00FFCB : 0xFF888888; // Cyan or grey
+        
         if(r == t->cursor_row && c == t->cursor_col){
              // Draw Brace Cursor { ch }
-             draw_char_at(w, px, py, '{', 0xFFFFFF00); // Yellow Brace
+             draw_char_at(w, px, py, '{', cursor_color);
              px += CHAR_W;
              if(ch != 0 && ch != ' ') {
-                 draw_char_at(w, px, py, ch, 0xFFFFFFFF);
+                 draw_char_at(w, px, py, ch, text_color);
                  px += CHAR_W;
              } else {
-                 // Cursor on empty space, check if at end of line?
-                 // Just draw space?
-                 // draw_char_at space is black. 
+                 // Cursor on empty space
              }
-             draw_char_at(w, px, py, '}', 0xFFFFFF00);
+             draw_char_at(w, px, py, '}', cursor_color);
              px += CHAR_W;
         } else {
-             if(ch != 0) draw_char_at(w, px, py, ch, 0xFFFFFFFF);
+             if(ch != 0) draw_char_at(w, px, py, ch, text_color);
              px += CHAR_W;
         }
     }
@@ -314,9 +320,10 @@ spawn_window(int x, int y)
 
   // Clear Buffer
   for(int i=0; i<win->w*win->h; i++) win->buf[i] = 0xFFCCCCCC;
-  // Title Bar
+  // Title Bar - will be cyan when focused, blue otherwise
+  uint title_color = 0xFF3333AA; // Blue for unfocused (will update on focus)
   for(int py=0; py<20; py++)
-    for(int px=0; px<win->w; px++) win->buf[py*win->w + px] = 0xFF3333AA;
+    for(int px=0; px<win->w; px++) win->buf[py*win->w + px] = title_color;
   // Client Area Black
   for(int py=20; py<win->h; py++)
     for(int px=0; px<win->w; px++) win->buf[py*win->w + px] = 0xFF000000;
@@ -378,13 +385,93 @@ spawn_window(int x, int y)
       curr->next = win;
   }
   focus_win = win;
+  update_title_colors();
   return win;
 }
 
+// Update title bar colors based on focus
+void
+update_title_colors()
+{
+  Window *w = windows;
+  while(w){
+      // Update title bar color
+      uint color = (w == focus_win) ? 0xFF00FFCB : 0xFF3333AA;
+      for(int py=0; py<20; py++)
+          for(int px=0; px<w->w; px++)
+              w->buf[py*w->w + px] = color;
+      
+      // Redraw all terminal lines to update text/cursor colors
+      for(int r=0; r<ROWS; r++)
+          redraw_line(w, r);
+          
+      w = w->next;
+  }
+}
+
+// Draw cursor at current mouse position
+// Also erases previous cursor by restoring background
+void
+draw_cursor(int x, int y)
+{
+  static int last_x = -1, last_y = -1;
+  
+  // Erase old cursor by restoring background from windows
+  if(last_x >= 0 && last_y >= 0){
+      int cx = last_x;
+      int cy = last_y;
+      if(cx > SCREEN_W-10) cx = SCREEN_W-10;
+      if(cy > SCREEN_H-10) cy = SCREEN_H-10;
+      if(cx < 0) cx = 0;
+      if(cy < 0) cy = 0;
+      
+      // Restore background for old cursor area
+      for(int dy=0; dy<10; dy++){
+          for(int dx=0; dx<10; dx++){
+              int sx = cx + dx;
+              int sy = cy + dy;
+              if(sx >= SCREEN_W || sy >= SCREEN_H) continue;
+              
+              // Restore from background or window
+              fb[sy*SCREEN_W + sx] = BACK_COLOR; // Background color
+              
+              // Check if any window covers this pixel
+              Window *w = windows;
+              while(w){
+                  if(sx >= w->x && sx < w->x + w->w && 
+                     sy >= w->y && sy < w->y + w->h){
+                      int wx = sx - w->x;
+                      int wy = sy - w->y;
+                      fb[sy*SCREEN_W + sx] = w->buf[wy*w->w + wx];
+                      break;
+                  }
+                  w = w->next;
+              }
+          }
+      }
+  }
+  
+  // Draw new cursor
+  int cx = x;
+  int cy = y;
+  if(cx > SCREEN_W-10) cx = SCREEN_W-10;
+  if(cy > SCREEN_H-10) cy = SCREEN_H-10;
+  if(cx < 0) cx = 0;
+  if(cy < 0) cy = 0;
+  
+  for(int dy=0; dy<10; dy++)
+      for(int dx=0; dx<10; dx++)
+           fb[(cy+dy)*SCREEN_W + (cx+dx)] = CURSOR_COLOR;
+           
+  last_x = x;
+  last_y = y;
+}
+
+// Composite all windows (without cursor)
 void
 composite()
 {
-  for(int i=0; i<SCREEN_W*SCREEN_H; i++) fb[i] = 0xFF003333; // Clear
+  for(int i=0; i<SCREEN_W*SCREEN_H; i++) fb[i] = BACK_COLOR; // Clear
   
   Window *w = windows;
   while(w){
@@ -402,16 +489,6 @@ composite()
       }
       w = w->next;
   }
-  
-  // Draw Cursor
-  int cx = mouse_x; int cy = mouse_y;
-  if(cx > SCREEN_W-10) cx = SCREEN_W-10;
-  if(cy > SCREEN_H-10) cy = SCREEN_H-10;
-  for(int dy=0; dy<10; dy++)
-      for(int dx=0; dx<10; dx++)
-           fb[(cy+dy)*SCREEN_W + (cx+dx)] = 0xFFFFFFFF;
-            
-   gpu_flush();
 }
 
 Window* find_window_at(int x, int y){
@@ -435,6 +512,10 @@ main(int argc, char *argv[])
   if(shmid < 0) exit(1);
   fb = (uint*) shmat(shmid, 0);
   if((uint64)fb == -1) exit(1);
+  
+  // Cursor state for optimization
+  int prev_mouse_x = -1, prev_mouse_y = -1;
+  
   int input_fd = open("/dev/input", O_RDONLY);
   if(input_fd < 0) exit(1);
 
@@ -462,9 +543,9 @@ main(int argc, char *argv[])
                   if(mouse_btn && drag_win){
                       drag_win->x = mouse_x - drag_off_x;
                       drag_win->y = mouse_y - drag_off_y;
-                      composite();
+                      composite(); draw_cursor(mouse_x, mouse_y); gpu_flush();
                   } else {
-                      composite(); // Redraw cursor
+                      if(prev_mouse_x != mouse_x || prev_mouse_y != mouse_y){ draw_cursor(mouse_x, mouse_y); gpu_flush(); prev_mouse_x = mouse_x; prev_mouse_y = mouse_y; }
                   }
               } else if(ev.type == EV_KEY){
                   // Mouse Buttons
@@ -475,6 +556,7 @@ main(int argc, char *argv[])
                           if(hit){
                               // Raise window/Focus
                               focus_win = hit;
+                              update_title_colors();
                               if(mouse_y < hit->y + 20){
                                   drag_win = hit;
                                   drag_off_x = mouse_x - hit->x;
@@ -585,7 +667,11 @@ main(int argc, char *argv[])
           w = w->next;
       }
       
-      if(did_update) composite();
+      if(did_update){
+          composite();
+          draw_cursor(mouse_x, mouse_y);
+          gpu_flush();
+      }
       
       // Avoid busy loop if idle?
       // Not ideal, but sleep(1) is too slow.
