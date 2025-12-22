@@ -40,3 +40,4 @@ extern struct devsw devsw[];
 #define CONSOLE 1
 #define WM      2
 #define GWIN    3
+#define INPUT   4

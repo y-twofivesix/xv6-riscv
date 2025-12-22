@@ -80,6 +80,16 @@ int             pipealloc(struct file**, struct file**);
 void            pipeclose(struct pipe*, int);
 int             piperead(struct pipe*, uint64, int);
 int             pipewrite(struct pipe*, uint64, int);
+int             pipereadavail(struct pipe*);
+
+// file.c
+struct file*    filealloc(void);
+void            fileclose(struct file*);
+int             filestat(struct file*, uint64 addr);
+int             fileread(struct file*, uint64, int n);
+int             filewrite(struct file*, uint64, int n);
+int             filereadavail(struct file*);
+struct file*    filedup(struct file*);
 
 // ipc.c
 int             ipc_send(int, char*, int);
@@ -102,6 +112,8 @@ void            virtio_gpu_init(void);
 
 // printf.c
 int             printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
+int             inputread(int, uint64, int, int);
+int             inputreadavail(void);
 void            panic(char*) __attribute__((noreturn));
 void            printfinit(void);
 

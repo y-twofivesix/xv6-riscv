@@ -180,3 +180,20 @@ filewrite(struct file *f, uint64 addr, int n)
   return ret;
 }
 
+int
+filereadavail(struct file *f)
+{
+  if(f->readable == 0)
+    return -1;
+  
+  if(f->type == FD_PIPE){
+    return pipereadavail(f->pipe);
+  } else if(f->type == FD_DEVICE){
+    if(f->major == INPUT){
+        return inputreadavail();
+    }
+    return 1; 
+  }
+  return 1;
+}
+

@@ -1,8 +1,10 @@
+#define SHM_FB 0xFB00
 struct stat;
 
 // system calls
 int fork(void);
 int exit(int) __attribute__((noreturn));
+int readavail(int);
 int wait(int*);
 int pipe(int*);
 int write(int, const void*, int);
@@ -27,6 +29,7 @@ int send(int, char*, int);
 int recv(int*, char*, int);
 int shmget(int, int);
 void* shmat(int, void*);
+int gpu_flush(void);
 
 
 // ulib.c

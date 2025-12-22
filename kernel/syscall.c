@@ -107,6 +107,8 @@ extern uint64 sys_send(void);
 extern uint64 sys_recv(void);
 extern uint64 sys_shmget(void);
 extern uint64 sys_shmat(void);
+extern uint64 sys_readavail(void);
+extern uint64 sys_gpu_flush(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -137,6 +139,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_recv]    sys_recv,
 [SYS_shmget]  sys_shmget,
 [SYS_shmat]   sys_shmat,
+[SYS_readavail] sys_readavail,
+[SYS_gpu_flush] sys_gpu_flush,
 };
 
 void

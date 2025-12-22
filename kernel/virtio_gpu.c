@@ -16,7 +16,7 @@
 
 int gui_active = 0;
 
-static void virtio_gpu_cursor_init(void);
+// static void virtio_gpu_cursor_init(void);
 void virtio_gpu_cursor_move(uint32 x, uint32 y);
 
 struct virtio_gpu_config {
@@ -465,7 +465,7 @@ virtio_gpu_init(void)
   printf("[GPU] VirtIO-GPU initialized and ready.\n");
   printf("[GPU] Initialization complete. Background set.\n");
   
-  virtio_gpu_cursor_init();
+  // virtio_gpu_cursor_init();
 }
 
 // Transfer a rectangular region from guest memory to the GPU resource.
@@ -505,6 +505,7 @@ virtio_gpu_flush(uint32 x, uint32 y, uint32 w, uint32 h)
     printf("[GPU] Flush failed! 0x%x\n", gpu.success.type);
   release(&gpu.lock);
 }
+#if 0
 void
 virtio_gpu_cursor_init(void)
 {
@@ -555,6 +556,7 @@ virtio_gpu_cursor_init(void)
   
   printf("[GPU] Hardware cursor initialized.\n");
 }
+#endif
 
 void
 virtio_gpu_cursor_move(uint32 x, uint32 y)

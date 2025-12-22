@@ -128,3 +128,13 @@ piperead(struct pipe *pi, uint64 addr, int n)
   release(&pi->lock);
   return i;
 }
+
+int
+pipereadavail(struct pipe *pi)
+{
+  int n;
+  acquire(&pi->lock);
+  n = pi->nwrite - pi->nread;
+  release(&pi->lock);
+  return n;
+}

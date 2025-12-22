@@ -12,6 +12,7 @@
 pagetable_t kernel_pagetable;
 
 extern char etext[];  // kernel.ld sets this to end of kernel code.
+extern char end[];    // kernel.ld sets this to end of kernel.
 
 extern char trampoline[]; // trampoline.S
 
@@ -192,7 +193,10 @@ uvmunmap(pagetable_t pagetable, uint64 va, uint64 npages, int do_free)
       panic("uvmunmap: not a leaf");
     if(do_free){
       uint64 pa = PTE2PA(*pte);
-      kfree((void*)pa);
+      if(pa >= (uint64)end) kfree((void*)pa);
+      else {
+          // Static memory, do not free
+      }
     }
     *pte = 0;
   }
@@ -325,8 +329,10 @@ uvmcopy(pagetable_t old, pagetable_t new, uint64 sz)
     pa = PTE2PA(*pte);
     flags = PTE_FLAGS(*pte);
     if(flags & PTE_S){
-      // Shared page: Map to same physical address and increment ref count
-      kref((void*)pa);
+      // Shared page
+      // Static Kernel Memory check:
+      if(pa >= (uint64)end) kref((void*)pa);
+      
       if(mappages(new, i, PGSIZE, pa, flags) != 0){
         goto err;
       }

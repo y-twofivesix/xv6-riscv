@@ -4,6 +4,9 @@
 #include "param.h"
 #include "memlayout.h"
 #include "spinlock.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 #include "virtio.h"
 
 // VirtIO Input Device ID is 18
@@ -58,7 +61,17 @@ static struct input {
   struct virtio_input_event events[NUM];
 } inputs[MAX_INPUTS];
 
-// Simplified US Keyboard Mapping (Scancode -> ASCII)
+// Input Event Buffer
+#define INPUT_BUF_SIZE 64
+struct {
+  struct spinlock lock;
+  struct virtio_input_event buf[INPUT_BUF_SIZE];
+  uint r, w;
+} input_buffer;
+
+int inputread(int user_dst, uint64 dst, int n, int off);
+void virtio_input_init(void);
+
 // Linux Input Event codes (from linux/input-event-codes.h)
 // KEY_1=2, KEY_Q=16, KEY_A=30, KEY_Z=44
 char keymap[128] = {
@@ -96,6 +109,9 @@ virtio_input_init(void)
   int idx = 0;
 
   printf("[INPUT] Starting scan...\n");
+
+  initlock(&input_buffer.lock, "input");
+  devsw[INPUT].read = inputread;
 
   // Scan for VirtIO Input devices (ID 18)
   for(int i = 0; i < 8; i++){
@@ -183,6 +199,47 @@ int mouse_y = 0;
 int mouse_btn = 0;
 int mouse_scroll = 0;
 
+int
+inputread(int user_dst, uint64 dst, int n, int off)
+{
+  struct virtio_input_event e;
+  int count = 0;
+  
+  acquire(&input_buffer.lock);
+  while(n >= sizeof(struct virtio_input_event)){
+    while(input_buffer.r == input_buffer.w){
+      if(killed(myproc())){
+        release(&input_buffer.lock);
+        return -1;
+      }
+      sleep(&input_buffer.r, &input_buffer.lock);
+    }
+    
+    e = input_buffer.buf[input_buffer.r % INPUT_BUF_SIZE];
+    input_buffer.r++;
+    
+    if(either_copyout(user_dst, dst, &e, sizeof(e)) == -1){
+      break;
+    }
+    
+    dst += sizeof(e);
+    n -= sizeof(e);
+    count += sizeof(e);
+  }
+  release(&input_buffer.lock);
+  return count;
+}
+
+int
+inputreadavail(void)
+{
+  int n;
+  acquire(&input_buffer.lock);
+  n = input_buffer.w - input_buffer.r;
+  release(&input_buffer.lock);
+  return n * sizeof(struct virtio_input_event);
+}
+
 void
 virtio_input_intr(void)
 {
@@ -197,11 +254,25 @@ virtio_input_intr(void)
       struct virtio_input_event *e = (struct virtio_input_event *)inp->desc[id].addr;
 
       if(e->type == EV_ABS){
+          // Buffer the event
+          acquire(&input_buffer.lock);
+          input_buffer.buf[input_buffer.w % INPUT_BUF_SIZE] = *e;
+          input_buffer.w++;
+          wakeup(&input_buffer.r);
+          release(&input_buffer.lock);
+
          if(e->code == ABS_X) mouse_x = (e->value * 1280) / 32767;
          if(e->code == ABS_Y) mouse_y = (e->value * 800) / 32767;
-         virtio_gpu_cursor_move(mouse_x, mouse_y);
-         wm_mouse_intr(mouse_x, mouse_y, mouse_btn, 0);
+         // virtio_gpu_cursor_move(mouse_x, mouse_y);
+         // wm_mouse_intr(mouse_x, mouse_y, mouse_btn, 0);
       } else if(e->type == EV_KEY){
+          // Buffer the event
+          acquire(&input_buffer.lock);
+          input_buffer.buf[input_buffer.w % INPUT_BUF_SIZE] = *e;
+          input_buffer.w++;
+          wakeup(&input_buffer.r);
+          release(&input_buffer.lock);
+
          if(e->code == BTN_LEFT) {
            if(e->value) mouse_btn |= 1; else mouse_btn &= ~1;
            wm_mouse_intr(mouse_x, mouse_y, mouse_btn, 0);

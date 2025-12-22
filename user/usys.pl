@@ -41,4 +41,6 @@ entry("send");
 entry("recv");
 entry("shmget");
 entry("shmat");
+entry("readavail");
+entry("gpu_flush");
 

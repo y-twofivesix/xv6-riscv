@@ -7,11 +7,15 @@
 #include "proc.h"
 
 #define MAX_SHM 8
+#define SHM_KEY_FB 0xFB00
+
 struct {
   struct spinlock lock;
   void *pages[MAX_SHM];
+  uint size[MAX_SHM];     // Size in bytes
   int keys[MAX_SHM];
   int used[MAX_SHM];
+  int is_static[MAX_SHM]; // 1 = static kernel memory (no kref/kfree)
 } shm_table;
 
 void
@@ -160,7 +164,7 @@ uint64
 sys_shmget(void)
 {
   int key;
-  int size; // Unused for now, assume 1 page
+  int size; 
   
   argint(0, &key);
   argint(1, &size);
@@ -178,16 +182,30 @@ sys_shmget(void)
   // 2. Allocate new
   for(int i=0; i<MAX_SHM; i++){
     if(!shm_table.used[i]){
-       void *mem = kalloc();
-       if(mem == 0){
-          release(&shm_table.lock);
-          return -1;
+       int is_fb = (key == SHM_KEY_FB);
+       void *mem;
+       int segment_size;
+
+       if(is_fb){
+          // Framebuffer (Static)
+          mem = (void*)framebuffer; // Defined in defs.h/virtio_gpu.c
+          segment_size = 1280 * 800 * 4; 
+       } else {
+          // Standard Shared Page
+          mem = kalloc();
+          if(mem == 0){
+             release(&shm_table.lock);
+             return -1;
+          }
+          memset(mem, 0, PGSIZE);
+          segment_size = PGSIZE;
        }
-       memset(mem, 0, PGSIZE);
        
        shm_table.pages[i] = mem;
+       shm_table.size[i] = segment_size;
        shm_table.keys[i] = key;
        shm_table.used[i] = 1;
+       shm_table.is_static[i] = is_fb;
        
        release(&shm_table.lock);
        return i;
@@ -224,24 +242,33 @@ sys_shmat(void)
       return -1;
   }
   
-  void *pa = shm_table.pages[shmid];
+  void *base_pa = shm_table.pages[shmid];
+  uint seg_size = shm_table.size[shmid];
+  int is_stat = shm_table.is_static[shmid];
   
-  // 2. Increment Ref Count (kernel table owns 1, this mapping adds 1)
-  kref(pa);
+  uint npages = PGROUNDUP(seg_size) / PGSIZE;
   
-  // 3. Map it
-  // PTE_W | PTE_R | PTE_U | PTE_S
-  if(mappages(p->pagetable, addr, PGSIZE, (uint64)pa, PTE_W|PTE_R|PTE_U|PTE_S) != 0){
-      // Rollback ref count? 
-      // We don't have kdecref exposed, but we can call kfree which decrements.
-      kfree(pa);
-      release(&shm_table.lock);
-      return -1;
+  for(int i = 0; i < npages; i++){
+      void *pa = base_pa + i*PGSIZE;
+      uint64 va = addr + i*PGSIZE;
+      
+      // 2. Increment Ref Count (only if not static)
+      if(!is_stat) kref(pa);
+      
+      // 3. Map it
+      // PTE_W | PTE_R | PTE_U | PTE_S
+      if(mappages(p->pagetable, va, PGSIZE, (uint64)pa, PTE_W|PTE_R|PTE_U|PTE_S) != 0){
+          // Rollback logic is complex for multi-page. simple panic/fail for now
+          // We should ideally kfree what we allocated.
+          if(!is_stat) kfree(pa); // Free current
+          release(&shm_table.lock);
+          return -1;
+      }
   }
   
   // Update process size if we grew it (simple sbrk-like behavior)
-  if(addr >= p->sz){
-    p->sz = addr + PGSIZE;
+  if(addr + seg_size > p->sz){
+    p->sz = addr + seg_size;
   }
   
   release(&shm_table.lock);

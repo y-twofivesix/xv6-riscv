@@ -25,6 +25,7 @@ main(void)
   mknod("/dev/win3", WM, 3);
   mknod("/dev/win4", WM, 4);
   mknod("/dev/gwin0", GWIN, 0);
+  mknod("/dev/input", INPUT, 0);
 
   dup(0);  // stdout
   dup(0);  // stderr

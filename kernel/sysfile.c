@@ -563,3 +563,23 @@ sys_pwd(void)
 
   return 0;
 }
+
+uint64
+sys_readavail(void)
+{
+  struct file *f;
+  
+  if(argfd(0, 0, &f) < 0)
+    return -1;
+  
+  return filereadavail(f);
+}
+
+uint64
+sys_gpu_flush(void)
+{
+  // TODO: Flush only damaged rectangles for efficiency instead of full screen.
+  virtio_gpu_transfer(0, 0, 1280, 800);
+  virtio_gpu_flush(0, 0, 1280, 800);
+  return 0;
+}
