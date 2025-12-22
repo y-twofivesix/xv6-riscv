@@ -32,7 +32,7 @@ main(int argc, char *argv[])
   }
 
   if(write(fd, square, sizeof(square)) != sizeof(square)){
-    printf("gtest: write failed\n");
+    printf("gtest: write failed (no graphics hardware available?)\n");
     exit(1);
   }
 

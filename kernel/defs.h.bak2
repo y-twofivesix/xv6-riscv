@@ -243,6 +243,8 @@ void            virtio_gpu_init(void);
 void            virtio_gpu_transfer(uint32 x, uint32 y, uint32 w, uint32 h);
 void            virtio_gpu_flush(uint32 x, uint32 y, uint32 w, uint32 h);
 void            virtio_gpu_cursor_move(uint32 x, uint32 y);
+void            gui_draw_char(uint32 x, uint32 y, char c, uint32 color, int scale);
+void            gui_draw_string(uint32 x, uint32 y, char *s, uint32 color, int scale);
 extern int      gui_active;
 extern uint32   framebuffer[];
 

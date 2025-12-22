@@ -19,11 +19,6 @@ main(void)
     mknod("/dev/console", CONSOLE, 0);
     open("/dev/console", O_RDWR);
   }
-  mknod("/dev/winctl", WM, 0);
-  mknod("/dev/win1", WM, 1);
-  mknod("/dev/win2", WM, 2);
-  mknod("/dev/win3", WM, 3);
-  mknod("/dev/win4", WM, 4);
   mknod("/dev/gwin0", GWIN, 0);
   // Note: /dev/input is created conditionally based on GUI availability
 

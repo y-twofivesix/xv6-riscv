@@ -58,7 +58,8 @@ int capslock_state = 0;
 #define ROWS 20
 #define CHAR_W 8
 #define CHAR_H 8
-#define PADDING 4
+#define PADDING 8
+#define LINE_SPACING 8  // Extra pixels between lines (like CSS line-height)
 
 typedef struct Terminal {
     int pid;
@@ -119,7 +120,7 @@ void
 redraw_line(Window *w, int r)
 {
     Terminal *t = &w->term;
-    int base_py = 20 + PADDING + r * CHAR_H;
+    int base_py = 20 + PADDING + r * (CHAR_H + LINE_SPACING);
     
     // Clear line first
     for(int y=0; y<CHAR_H; y++){
@@ -307,7 +308,7 @@ spawn_window(int x, int y)
   win->id = next_win_id++;
   win->x = x; win->y = y;
   win->w = COLS*CHAR_W + 2*PADDING;
-  win->h = ROWS*CHAR_H + 2*PADDING + 20;
+  win->h = ROWS*(CHAR_H + LINE_SPACING) + 2*PADDING + 20;
   win->buf = malloc(win->w * win->h * 4);
   win->next = 0;
 

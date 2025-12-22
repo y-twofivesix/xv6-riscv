@@ -12,7 +12,6 @@ main()
 {
   if(cpuid() == 0){
       consoleinit();
-      wminit();
       gwininit();
       printfinit();
       printf("\n");

@@ -10,7 +10,6 @@ OBJS = \
   $K/kalloc.o \
   $K/spinlock.o \
   $K/string.o \
-  $K/wm.o \
   $K/gwin.o \
   $K/virtio_gpu.o \
   $K/virtio_input.o \

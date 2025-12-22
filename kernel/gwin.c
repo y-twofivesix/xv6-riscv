@@ -9,6 +9,9 @@
 #include "fs.h"
 #include "file.h"
 
+// From virtio_gpu.c
+extern int gui_active;
+
 #define SCREEN_W 1280
 #define SCREEN_H 800
 
@@ -32,6 +35,12 @@ gwininit(void)
 int
 gwinwrite(int user_src, uint64 src, int n, int off)
 {
+  // Check if graphics hardware is available
+  if(!gui_active) {
+    // No graphics available - return error instead of panicking
+    return -1;
+  }
+
   int count = n / sizeof(struct gpixel);
   if(count <= 0) return -1;
 

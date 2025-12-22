@@ -10,6 +10,9 @@
 #include "proc.h"
 #include "defs.h"
 
+// From virtio_gpu.c
+extern int gui_active;
+
 // the UART control registers are memory-mapped
 // at address UART0. this macro returns the
 // address of one of the registers.
@@ -181,7 +184,8 @@ uartintr(void)
     int c = uartgetc();
     if(c == -1)
       break;
-    wmintr(c);
+    // Route all input to console driver (rio handles graphics in userspace)
+    consoleintr(c);
   }
 
   // send buffered characters.
