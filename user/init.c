@@ -46,6 +46,16 @@ main(void)
     }
     wait(0);
 
+    // // Run 'shmtest' to verify shared memory
+    // pid = fork();
+    // if(pid == 0){
+    //     char *argv_shm[] = { "shmtest", 0 };
+    //     exec("/bin/shmtest", argv_shm);
+    //     printf("init: exec shmtest failed\n");
+    //     exit(1);
+    // }
+    // wait(0);
+
     printf("\n[INIT] Starting Window Manager...\n");
 
     pid = fork();

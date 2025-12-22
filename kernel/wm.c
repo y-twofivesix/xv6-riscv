@@ -15,7 +15,9 @@
 #define INPUT_BUF_SIZE 128
 #define ROWS 20
 #define COLS 60
-
+#define FONT_SCALE 1
+#define CHAR_PADDING_X 0
+#define CHAR_PADDING_Y 4
 struct vwindow {
   struct spinlock lock;
   char buf[INPUT_BUF_SIZE];
@@ -90,8 +92,11 @@ wminit(void)
     if (i > 0) {
         wm.windows[i].x = 50 + (i-1)*50;
         wm.windows[i].y = 50 + (i-1)*50;
-        wm.windows[i].w = 1000;
-        wm.windows[i].h = 360; // 20 rows * 16 = 320 + 40 headers/padding
+        // Dynamic sizing based on grid and font scale + padding
+        int char_width = (8 * FONT_SCALE) + CHAR_PADDING_X;
+        int char_height = (8 * FONT_SCALE) + CHAR_PADDING_Y;
+        wm.windows[i].w = (COLS * char_width) + 40;
+        wm.windows[i].h = (ROWS * char_height) + 60; 
     }
   }
   
@@ -352,32 +357,55 @@ wm_redraw(struct gwindow *gwin)
   if(title[0] == 0) { 
       title[0] = 'W'; title[1]='i'; title[2]='n'; title[3]=0;
   }
-  gui_draw_string(gwin->x + 4, gwin->y + 6, title, 0xFFFFFFFF, 2);
+  gui_draw_string(gwin->x + 4, gwin->y + 6, title, 0xFFFFFFFF, FONT_SCALE);
 
   // 2. Render Display Buffer
+  int char_width = (8 * FONT_SCALE) + CHAR_PADDING_X;
+  int char_height = (8 * FONT_SCALE) + CHAR_PADDING_Y;
   for(int r = 0; r < ROWS; r++){
-    for(int c = 0; c < COLS; c++){
-      int px = start_x + (c * 16);
-      int py = start_y + (r * 16);
-      
-      char ch = win->display[r][c];
-      // Default color white, maybe dim for empty?
-      gui_draw_char(px, py, ch, 0xFFFFFFFF, 2);
+    // If this is the cursor row, we handle it specially to insert braces
+    if(r == win->cursor_row){
+        int visual_col = 0;
+        for(int c = 0; c < COLS; c++){
+            if(c == win->cursor_col){
+                 char ch = win->display[r][c];
+                 
+                 // 1. Draw Left Brace
+                 int px = start_x + (visual_col * char_width);
+                 int py = start_y + (r * char_height);
+                 gui_draw_char(px, py, '{', 0xFFFFFF00, FONT_SCALE);
+                 visual_col++;
+
+                 // 2. Draw The Character (if not space)
+                 if(ch != ' '){
+                     px = start_x + (visual_col * char_width);
+                     gui_draw_char(px, py, ch, 0xFFFFFFFF, FONT_SCALE);
+                     visual_col++;
+                 }
+
+                 // 3. Draw Right Brace
+                 px = start_x + (visual_col * char_width);
+                 gui_draw_char(px, py, '}', 0xFFFFFF00, FONT_SCALE);
+                 visual_col++;
+            } else {
+                 // Normal char
+                 int px = start_x + (visual_col * char_width);
+                 int py = start_y + (r * char_height);
+                 gui_draw_char(px, py, win->display[r][c], 0xFFFFFFFF, FONT_SCALE);
+                 visual_col++;
+            }
+        }
+    } else {
+        // Normal Row
+        for(int c = 0; c < COLS; c++){
+          int px = start_x + (c * char_width);
+          int py = start_y + (r * char_height);
+          gui_draw_char(px, py, win->display[r][c], 0xFFFFFFFF, FONT_SCALE);
+        }
     }
   }
   
-  // 3. Draw Hardware Cursor
-  // The user requested '{}' style cursor. We can simulate this graphically.
-  // We'll draw yellow brackets around the current character cell.
-  int cx = start_x + (win->cursor_col * 16);
-  int cy = start_y + (win->cursor_row * 16);
-  
-  // Left bracket '{' - shift left by 12 px
-  gui_draw_char(cx - 12, cy, '{', 0xFFFFFF00, 2); 
-  // Right bracket '}' - shift right by 12 px (so it starts at +12 relative to cell start?)
-  // Cell is 16 wide. center is +8. 
-  // Let's try cx + 12.
-  gui_draw_char(cx + 12, cy, '}', 0xFFFFFF00, 2);
+  // 3. Hardware cursor is now drawn inline above.
   
   // Flush entire window area
   virtio_gpu_transfer(gwin->x, gwin->y, gwin->w, gwin->h);
@@ -595,7 +623,24 @@ wmintr(int c)
       win->e--;
       win->cursor--;
       
-      wm_putc(win, '\b'); // Visual backspace
+      wm_putc(win, '\b'); // Visual backspace (moves cursor back 1)
+      
+      // Save cursor position
+      int r = win->cursor_row;
+      int c = win->cursor_col;
+      
+      // Reprint remainder of line
+      for(uint i = win->cursor; i < win->e; i++){
+          wm_putc(win, win->buf[i % INPUT_BUF_SIZE]);
+      }
+      
+      // Erase trailing character (now duplicate)
+      wm_putc(win, ' ');
+      
+      // Restore cursor position
+      win->cursor_row = r;
+      win->cursor_col = c;
+      
       wm_redraw(&wm.windows[wm.active]);
     }
     break;
@@ -608,6 +653,7 @@ wmintr(int c)
     win->last_visual_len = 0; // Legacy field, can ignore
     
     wm_putc(win, '\n'); // Echo newline
+    if(!gui_active) { uartputc_sync('\r'); uartputc_sync('\n'); }
     wm_redraw(&wm.windows[wm.active]);
     wakeup(&win->r);
     break;

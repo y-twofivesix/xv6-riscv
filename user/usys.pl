@@ -39,4 +39,6 @@ entry("uptime");
 entry("pwd");
 entry("send");
 entry("recv");
+entry("shmget");
+entry("shmat");
 

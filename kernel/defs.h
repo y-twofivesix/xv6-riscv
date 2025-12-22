@@ -66,6 +66,7 @@ void            ramdiskrw(struct buf*);
 // kalloc.c
 void*           kalloc(void);
 void            kfree(void *);
+void            kref(void *);
 void            kinit(void);
 
 // log.c
@@ -128,6 +129,10 @@ int             growproc(int);
 void            proc_mapstacks(pagetable_t);
 pagetable_t     proc_pagetable(struct proc *);
 void            proc_freepagetable(pagetable_t, uint64);
+void            shminit(void);
+int             shmget(int, int);
+void*           shmat(int, void*);
+void            shminit(void);
 int             kill(int);
 int             killed(struct proc*);
 void            setkilled(struct proc*);

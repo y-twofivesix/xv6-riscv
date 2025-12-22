@@ -32,6 +32,7 @@ main()
       virtio_disk_init(); // emulated hard disk
       virtio_gpu_init();  // find gpu hardware
       virtio_input_init(); // find input hardware
+      shminit();       // shared memory table
       userinit();      // first user process
       __sync_synchronize();
       started = 1;

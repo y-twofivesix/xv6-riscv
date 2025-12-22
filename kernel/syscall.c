@@ -103,7 +103,10 @@ extern uint64 sys_mkdir(void);
 extern uint64 sys_close(void);
 extern uint64 sys_pwd(void);
 extern uint64 sys_send(void);
+extern uint64 sys_send(void);
 extern uint64 sys_recv(void);
+extern uint64 sys_shmget(void);
+extern uint64 sys_shmat(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -132,6 +135,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_pwd]     sys_pwd,
 [SYS_send]    sys_send,
 [SYS_recv]    sys_recv,
+[SYS_shmget]  sys_shmget,
+[SYS_shmat]   sys_shmat,
 };
 
 void

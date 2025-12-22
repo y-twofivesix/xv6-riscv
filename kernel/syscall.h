@@ -23,3 +23,5 @@
 #define SYS_pwd    22
 #define SYS_send   23
 #define SYS_recv   24
+#define SYS_shmget 25
+#define SYS_shmat  26

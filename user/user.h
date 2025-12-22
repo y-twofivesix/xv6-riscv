@@ -25,6 +25,8 @@ int uptime(void);
 int pwd(void);
 int send(int, char*, int);
 int recv(int*, char*, int);
+int shmget(int, int);
+void* shmat(int, void*);
 
 
 // ulib.c

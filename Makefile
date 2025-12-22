@@ -148,7 +148,8 @@ UPROGS=\
 	$U/_ipctest\
 	$U/_rio\
 	$U/_tuitest\
-	$U/_gtest
+	$U/_gtest\
+	$U/_shmtest
 
 .PHONY: fs.img
 fs.img: mkfs/mkfs README INFO $(UPROGS)
