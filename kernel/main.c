@@ -13,6 +13,7 @@ main()
   if(cpuid() == 0){
       consoleinit();
       wminit();
+      gwininit();
       printfinit();
       printf("\n");
       printf("booting kernel.\n");
@@ -29,6 +30,8 @@ main()
       iinit();         // inode table
       fileinit();      // file table
       virtio_disk_init(); // emulated hard disk
+      virtio_gpu_init();  // find gpu hardware
+      virtio_input_init(); // find input hardware
       userinit();      // first user process
       __sync_synchronize();
       started = 1;

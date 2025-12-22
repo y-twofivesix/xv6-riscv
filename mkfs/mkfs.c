@@ -158,6 +158,8 @@ main(int argc, char *argv[])
   // create bin directory
   uint bininode = dir(rootino, de, "bin");
 
+  // create dev directory
+  dir(rootino, de, "dev");
   for(i = 2; i < argc; i++){
     // get rid of "user/"
     char *shortname;

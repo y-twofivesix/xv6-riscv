@@ -1,0 +1,12 @@
+
+        █████╗ ██████╗ ████████╗          ██████╗ 
+    ██╗██╔══██╗██╔══██╗╚══██╔══╝██╗   ██╗██╔═████╗
+    ██║███████║██████╔╝   ██║   ██║   ██║██║██╔██║
+    ██║██╔══██║██╔══██╗   ██║   ╚██╗ ██╔╝████╔╝██║
+    ██║██║  ██║██║  ██║   ██║    ╚████╔╝ ╚██████╔╝
+    ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝     ╚═══╝   ╚═════╝ 
+
+    iART research-kernel v0.0.0. AART. 2025.
+    This is a fork of the xv6 operating system,
+    a re-implementation of Dennis Ritchie's and
+    Ken Thompson's Unix Version 6 (v6).

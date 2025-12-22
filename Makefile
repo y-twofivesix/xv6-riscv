@@ -11,6 +11,9 @@ OBJS = \
   $K/spinlock.o \
   $K/string.o \
   $K/wm.o \
+  $K/gwin.o \
+  $K/virtio_gpu.o \
+  $K/virtio_input.o \
   $K/main.o \
   $K/vm.o \
   $K/proc.o \
@@ -82,7 +85,7 @@ endif
 
 LDFLAGS = -z max-page-size=4096
 
-$K/kernel: $(OBJS) $K/kernel.ld $U/initcode
+$K/kernel.elf: $(OBJS) $K/kernel.ld $U/initcode
 	$(LD) $(LDFLAGS) -T $K/kernel.ld -o $K/kernel.elf $(OBJS)
 	$(OBJDUMP) -S $K/kernel.elf > $K/kernel.asm
 	$(OBJDUMP) -t $K/kernel.elf | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $K/kernel.sym
@@ -96,7 +99,7 @@ $U/initcode: $U/initcode.S
 tags: $(OBJS) _init
 	etags *.S *.c
 
-ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o
+ULIB = $U/ulib.o $U/usys.o $U/printf.o $U/umalloc.o $U/tui.o
 
 _%: %.o $(ULIB)
 	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
@@ -143,11 +146,13 @@ UPROGS=\
 	$U/_pwd\
 	$U/_clear\
 	$U/_ipctest\
-	$U/_rio
+	$U/_rio\
+	$U/_tuitest\
+	$U/_gtest
 
 .PHONY: fs.img
-fs.img: mkfs/mkfs README $(UPROGS)
-	mkfs/mkfs fs.img README $(UPROGS)
+fs.img: mkfs/mkfs README INFO $(UPROGS)
+	mkfs/mkfs fs.img README INFO $(UPROGS)
 
 -include kernel/*.d user/*.d
 
@@ -169,6 +174,12 @@ QEMUOPTS = -machine virt -bios none -kernel $K/kernel.elf -m 128M -smp $(CPUS) -
 QEMUOPTS += -global virtio-mmio.force-legacy=false
 QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
 QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
+
+QEMUGUIOPTS = $(subst -nographic,,$(QEMUOPTS))
+QEMUGUIOPTS += -vga none -device virtio-gpu-device -device virtio-tablet-device -device virtio-keyboard-device -serial stdio
+
+qemu-gui: $K/kernel.elf fs.img
+	$(QEMU) $(QEMUGUIOPTS)
 
 # mvkoutput: 
 # 	mv $K/*.o 			$O/$K
@@ -196,3 +207,5 @@ qemu-gdb: fs.img
 	make
 	$(QEMU) $(QEMUOPTS) -s -S
 
+qemu-gui-gdb: $K/kernel.elf fs.img
+	$(QEMU) $(QEMUGUIOPTS) -s -S

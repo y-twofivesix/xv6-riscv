@@ -15,38 +15,38 @@ int
 main(void)
 {
   int pid, wpid;
-  if(open("/bin/console", O_RDWR) < 0){
-    mknod("/bin/console", CONSOLE, 0);
-    open("/bin/console", O_RDWR);
+  if(open("/dev/console", O_RDWR) < 0){
+    mknod("/dev/console", CONSOLE, 0);
+    open("/dev/console", O_RDWR);
   }
-  mknod("/bin/winctl", WM, 0);
-  mknod("/bin/win1", WM, 1);
-  mknod("/bin/win2", WM, 2);
-  mknod("/bin/win3", WM, 3);
-  mknod("/bin/win4", WM, 4);
+  mknod("/dev/winctl", WM, 0);
+  mknod("/dev/win1", WM, 1);
+  mknod("/dev/win2", WM, 2);
+  mknod("/dev/win3", WM, 3);
+  mknod("/dev/win4", WM, 4);
+  mknod("/dev/gwin0", GWIN, 0);
 
   dup(0);  // stdout
   dup(0);  // stderr
 
   for(;;){
+    
 
-    printf("\033[2J");            // clear screen
-    printf("\033[%d;%dH", 0, 0);  // goto 0,0
-    printf("\n\033[37m");
-    printf("\t    █████╗ ██████╗ ████████╗          ██████╗ \n");
-    printf("\t██╗██╔══██╗██╔══██╗╚══██╔══╝██╗   ██╗██╔═████╗\n");
-    printf("\t██║███████║██████╔╝   ██║   ██║   ██║██║██╔██║\n");
-    printf("\t██║██╔══██║██╔══██╗   ██║   ╚██╗ ██╔╝████╔╝██║\n");
-    printf("\t██║██║  ██║██║  ██║   ██║    ╚████╔╝ ╚██████╔╝\n");
-    printf("\t╚═╝╚═╝  ╚═╝╚═╝  ╚═╝   ╚═╝     ╚═══╝   ╚═════╝ \n");
+    // Clear screen first
+    printf("\033[2J");            
+    printf("\033[%d;%dH", 0, 0);
 
-    printf("\n\tiART research-kernel v0.0.0. AART. 2025.");
-    printf("\n\tThis is a fork of the xv6 operating system,");
-    printf("\n\ta re-implementation of Dennis Ritchie's and");
-    printf("\n\tKen Thompson's Unix Version 6 (v6).");
-    printf("\033[m"); 
-    printf("\n"); 
+    // Run 'cat INFO' to display welcome message
+    pid = fork();
+    if(pid == 0){
+        char *argv_cat[] = { "cat", "/bin/INFO", 0 };
+        exec("/bin/cat", argv_cat);
+        printf("init: exec cat failed\n");
+        exit(1);
+    }
+    wait(0);
 
+    printf("\n[INIT] Starting Window Manager...\n");
 
     pid = fork();
     if(pid < 0){

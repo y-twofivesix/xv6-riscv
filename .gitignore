@@ -12,7 +12,7 @@ entryother
 initcode
 initcode.out
 kernelmemfs
-mkfs
+#mkfs
 kernel/kernel
 user/usys.S
 .gdbinit

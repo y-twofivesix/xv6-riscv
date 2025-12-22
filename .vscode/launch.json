@@ -1,17 +1,30 @@
 {
     "configurations": [
-    {
-        "type": "gdb",
-        "request": "attach",
-        "name": "Attach to gdbserver",
-        "executable": "${workspaceRoot}/kernel/kernel.elf",
-        "target": "localhost:1234",
-        "remote": true,
-        "stopAtEntry": true,
-        "cwd": "${workspaceRoot}", 
-        "gdbpath": "/opt/homebrew/bin/gdb",
-        "preLaunchTask": "Run QEMU-GDB",
-        "autorun": [],
-    },
+        {
+            "type": "gdb",
+            "request": "attach",
+            "name": "Attach to gdbserver",
+            "executable": "${workspaceRoot}/kernel/kernel.elf",
+            "target": "localhost:1234",
+            "remote": true,
+            "stopAtEntry": true,
+            "cwd": "${workspaceRoot}",
+            "gdbpath": "/opt/homebrew/bin/gdb",
+            "preLaunchTask": "Run QEMU-GDB",
+            "autorun": [],
+        },
+        {
+            "type": "gdb",
+            "request": "attach",
+            "name": "Attach to QEMU-GUI-GDB",
+            "executable": "${workspaceRoot}/kernel/kernel.elf",
+            "target": "localhost:1234",
+            "remote": true,
+            "stopAtEntry": true,
+            "cwd": "${workspaceRoot}",
+            "gdbpath": "/opt/homebrew/bin/gdb",
+            "preLaunchTask": "Run QEMU-GUI-GDB",
+            "autorun": [],
+        }
     ]
 }

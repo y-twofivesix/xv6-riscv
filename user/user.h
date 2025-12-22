@@ -35,8 +35,10 @@ char* strchr(const char*, char c);
 int strcmp(const char*, const char*);
 void strcat(char *, const char *);
 int strtok(const char *, char *, char, int);
+#include <stdarg.h>
 void fprintf(int, const char*, ...) __attribute__ ((format (printf, 2, 3)));
 void printf(const char*, ...) __attribute__ ((format (printf, 1, 2)));
+void vprintf(int, const char*, va_list);
 void sprintf( char *, const char*, ...) __attribute__ ((format (printf, 2, 3)));
 char* gets(char*, int max);
 uint strlen(const char*);

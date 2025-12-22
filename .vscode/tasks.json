@@ -1,66 +1,96 @@
 {
-    "version": "2.0.0",
-    "tasks": [
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "Build",
+      "type": "shell",
+      "command": "make",
+      "args": [],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "problemMatcher": [
+        "$gcc"
+      ]
+    },
+    {
+      "label": "Run QEMU",
+      "type": "shell",
+      "command": "echo 'QEMU started'; make qemu",
+      "dependsOn": [
+        "Build"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
         {
-            "label": "Build",
-            "type": "shell",
-            "command": "make",
-            "args": [],
-            "group": {
-                "kind": "build",
-                "isDefault": true
-						},
-            "problemMatcher": ["$gcc"]
-				},
-        {
-          "label": "Run QEMU",
-          "type": "shell",
-          "command": "echo 'QEMU started'; make qemu",
-          "dependsOn": ["Build"],
-          "isBackground": true,
-          "problemMatcher": [
+          "pattern": [
             {
-              "pattern": [
-                {
-                  "regexp": ".",
-                  "file": 1,
-                  "location": 2,
-                  "message": 3
-								}
-							],
-              "background": {
-                "activeOnStart": true,
-                "beginsPattern": ".",
-                "endsPattern": "QEMU started",
-							}
-						}
-					]
-				},
+              "regexp": ".",
+              "file": 1,
+              "location": 2,
+              "message": 3
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".",
+            "endsPattern": "QEMU started",
+          }
+        }
+      ]
+    },
+    {
+      "label": "Run QEMU-GDB",
+      "type": "shell",
+      "command": "echo 'QEMU-GDB started'; make qemu-gdb",
+      "dependsOn": [
+        "Build"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
         {
-          "label": "Run QEMU-GDB",
-          "type": "shell",
-          "command": "echo 'QEMU-GDB started'; make qemu-gdb",
-          "dependsOn": ["Build"],
-          "isBackground": true,
-          "problemMatcher": [
+          "pattern": [
             {
-              "pattern": [
-                {
-                  "regexp": ".",
-                  "file": 1,
-                  "location": 2,
-                  "message": 3
-								}
-							],
-              "background": {
-                "activeOnStart": true,
-                "beginsPattern": ".",
-                "endsPattern": "QEMU-GDB started",
-							}
-						}
-					]
-				}
-
-        
-		]
+              "regexp": ".",
+              "file": 1,
+              "location": 2,
+              "message": 3
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".",
+            "endsPattern": "QEMU-GDB started",
+          }
+        }
+      ]
+    },
+    {
+      "label": "Run QEMU-GUI-GDB",
+      "type": "shell",
+      "command": "echo 'QEMU-GUI-GDB started'; make qemu-gui-gdb",
+      "dependsOn": [
+        "Build"
+      ],
+      "isBackground": true,
+      "problemMatcher": [
+        {
+          "pattern": [
+            {
+              "regexp": ".",
+              "file": 1,
+              "location": 2,
+              "message": 3
+            }
+          ],
+          "background": {
+            "activeOnStart": true,
+            "beginsPattern": ".",
+            "endsPattern": "QEMU-GUI-GDB started",
+          }
+        }
+      ]
+    }
+  ]
 }

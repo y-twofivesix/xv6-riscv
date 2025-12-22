@@ -91,6 +91,13 @@ int             wmread(int, uint64, int, int);
 int             wmwrite(int, uint64, int, int);
 void            wm_switch(int);
 
+// gwin.c
+void            gwininit(void);
+int             gwinread(int, uint64, int, int);
+int             gwinwrite(int, uint64, int, int);
+
+
+void            virtio_gpu_init(void);
 
 // printf.c
 int             printf(char*, ...) __attribute__ ((format (printf, 1, 2)));
@@ -221,5 +228,25 @@ void            virtio_disk_init(void);
 void            virtio_disk_rw(struct buf *, int);
 void            virtio_disk_intr(void);
 
-// number of elements in fixed-size array
+// virtio_gpu.c
+void            virtio_gpu_init(void);
+void            virtio_gpu_transfer(uint32 x, uint32 y, uint32 w, uint32 h);
+void            virtio_gpu_flush(uint32 x, uint32 y, uint32 w, uint32 h);
+void            virtio_gpu_cursor_move(uint32 x, uint32 y);
+void            gui_draw_char(uint32 x, uint32 y, char c, uint32 color, int scale);
+void            gui_draw_string(uint32 x, uint32 y, char *s, uint32 color, int scale);
+extern int      gui_active;
+extern uint32   framebuffer[];
+
+// virtio_input.c
+void            virtio_input_init(void);
+void            virtio_input_intr(void);
+extern int      mouse_x, mouse_y, mouse_btn, mouse_scroll;
+
+// wm.c
+struct vwindow;
+void            wminit(void);
+void            wm_switch(int n);
+void            wm_mouse_intr(int x, int y, int btn, int scroll);
+void            wmintr(int c);
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

@@ -194,8 +194,11 @@ devintr()
 
     if(irq == UART0_IRQ){
       uartintr();
-    } else if(irq == VIRTIO0_IRQ){
-      virtio_disk_intr();
+    } else if(irq >= VIRTIO0_IRQ && irq < VIRTIO0_IRQ + 8){
+      if(irq == VIRTIO0_IRQ)
+        virtio_disk_intr();
+      else
+        virtio_input_intr();
     } else if(irq){
       printf("unexpected interrupt irq=%d\n", irq);
     }
