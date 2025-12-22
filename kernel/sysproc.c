@@ -9,6 +9,9 @@
 #define MAX_SHM 8
 #define SHM_KEY_FB 0xFB00
 
+// External from virtio_gpu.c
+extern int gui_active;
+
 struct {
   struct spinlock lock;
   void *pages[MAX_SHM];
@@ -183,6 +186,13 @@ sys_shmget(void)
   for(int i=0; i<MAX_SHM; i++){
     if(!shm_table.used[i]){
        int is_fb = (key == SHM_KEY_FB);
+       
+       // Only create framebuffer shared memory if GUI hardware exists
+       if(is_fb && !gui_active){
+          release(&shm_table.lock);
+          return -1; // No GPU hardware available
+       }
+       
        void *mem;
        int segment_size;
 

@@ -74,22 +74,7 @@ void virtio_input_init(void);
 
 // Linux Input Event codes (from linux/input-event-codes.h)
 // KEY_1=2, KEY_Q=16, KEY_A=30, KEY_Z=44
-char keymap[128] = {
-  0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', // 0-14
-  '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', // 15-28
-  0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\', // 29-43
-  'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0, '*', 0, ' ' // 44-57
-};
-
-char keymap_shift[128] = {
-  0, 27, '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '\b', // 0-14
-  '\t', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '\n', // 15-28
-  0, 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', '~', 0, '|', // 29-43
-  'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', 0, '*', 0, ' ' // 44-57
-};
-
-static int shift_state = 0;
-static int capslock_state = 0;
+// Parsing tables removed as logic moved to userspace (rio.c)
 
 static int
 alloc_desc(struct input *inp)
@@ -253,82 +238,13 @@ virtio_input_intr(void)
       int id = inp->used->ring[inp->used_idx % NUM].id;
       struct virtio_input_event *e = (struct virtio_input_event *)inp->desc[id].addr;
 
-      if(e->type == EV_ABS){
-          // Buffer the event
-          acquire(&input_buffer.lock);
-          input_buffer.buf[input_buffer.w % INPUT_BUF_SIZE] = *e;
-          input_buffer.w++;
-          wakeup(&input_buffer.r);
-          release(&input_buffer.lock);
-
-         if(e->code == ABS_X) mouse_x = (e->value * 1280) / 32767;
-         if(e->code == ABS_Y) mouse_y = (e->value * 800) / 32767;
-         // virtio_gpu_cursor_move(mouse_x, mouse_y);
-         // wm_mouse_intr(mouse_x, mouse_y, mouse_btn, 0);
-      } else if(e->type == EV_KEY){
-          // Buffer the event
-          acquire(&input_buffer.lock);
-          input_buffer.buf[input_buffer.w % INPUT_BUF_SIZE] = *e;
-          input_buffer.w++;
-          wakeup(&input_buffer.r);
-          release(&input_buffer.lock);
-
-         if(e->code == BTN_LEFT) {
-           if(e->value) mouse_btn |= 1; else mouse_btn &= ~1;
-           wm_mouse_intr(mouse_x, mouse_y, mouse_btn, 0);
-         } else if(e->code == BTN_RIGHT) {
-           if(e->value) mouse_btn |= 2; else mouse_btn &= ~2;
-           wm_mouse_intr(mouse_x, mouse_y, mouse_btn, 0);
-         } else if(e->code == BTN_MIDDLE) {
-           if(e->value) mouse_btn |= 4; else mouse_btn &= ~4;
-           wm_mouse_intr(mouse_x, mouse_y, mouse_btn, 0);
-         } else {
-           // Keyboard Key
-           if(e->code == KEY_LEFTSHIFT || e->code == KEY_RIGHTSHIFT){
-               shift_state = (e->value == 1); // 1=Press, 0=Release
-           } else if(e->code == KEY_CAPSLOCK){
-               if(e->value == 1) capslock_state = !capslock_state; // Toggle on press
-           } else if (e->value == 1 || e->value == 2) { // Press or Repeat
-             int c = 0;
-             if(e->code == KEY_UP){
-                 wmintr(27); wmintr('['); wmintr('A');
-             } else if(e->code == KEY_DOWN){
-                 wmintr(27); wmintr('['); wmintr('B');
-             } else if(e->code == KEY_LEFT){
-                 wmintr(27); wmintr('['); wmintr('D');
-             } else if(e->code == KEY_RIGHT){
-                 wmintr(27); wmintr('['); wmintr('C');
-             } else if(e->code < 128){
-               int is_alpha = 0;
-               // Check if letter (q..p, a..l, z..m)
-               // Simple ranges from keymap indices: 16-25, 30-38, 44-50
-               if((e->code >= 16 && e->code <= 25) || (e->code >= 30 && e->code <= 38) || (e->code >= 44 && e->code <= 50))
-                   is_alpha = 1;
-               
-               if(is_alpha){
-                   // For letters, Shift XOR CapsLock determines case
-                   if(shift_state ^ capslock_state)
-                       c = keymap_shift[e->code];
-                   else
-                       c = keymap[e->code];
-               } else {
-                   // For symbols/numbers, only Shift matters
-                   if(shift_state)
-                       c = keymap_shift[e->code];
-                   else
-                       c = keymap[e->code];
-               }
-               
-               if(c != 0) wmintr(c);
-             }
-           }
-         }
-      } else if(e->type == EV_REL){
-         if(e->code == REL_WHEEL){
-           mouse_scroll += (int)e->value;
-           wm_mouse_intr(mouse_x, mouse_y, mouse_btn, (int)e->value);
-         }
-      }
+      // Simplification: Just buffer EVERY event for userspace to handle.
+      // No kernel-side parsing needed anymore.
+      acquire(&input_buffer.lock);
+      input_buffer.buf[input_buffer.w % INPUT_BUF_SIZE] = *e;
+      input_buffer.w++;
+      wakeup(&input_buffer.r);
+      release(&input_buffer.lock);
 
       // Re-queue the descriptor
       inp->desc[id].flags = VRING_DESC_F_WRITE;

@@ -25,7 +25,7 @@ main(void)
   mknod("/dev/win3", WM, 3);
   mknod("/dev/win4", WM, 4);
   mknod("/dev/gwin0", GWIN, 0);
-  mknod("/dev/input", INPUT, 0);
+  // Note: /dev/input is created conditionally based on GUI availability
 
   dup(0);  // stdout
   dup(0);  // stderr
@@ -57,17 +57,49 @@ main(void)
     // }
     // wait(0);
 
-    printf("\n[INIT] Starting Window Manager...\n");
-
-    pid = fork();
-    if(pid < 0){
-      printf("init: fork failed\n");
-      exit(1);
+    // Detect GUI availability - check if VirtIO GPU device exists
+    // A simple way is to see if the framebuffer shared memory was actually initialized
+    int gui_available = 0;
+    int shmid = shmget(SHM_FB, 0);
+    if(shmid >= 0){
+        void *test_fb = (void*)shmat(shmid, 0);
+        // Check if it mapped to a real address (not 0 which would be invalid)
+        if(test_fb != (void*)-1 && (uint64)test_fb >= 0x1000){
+            gui_available = 1;
+        }
     }
-    if(pid == 0){
-      exec("/bin/rio", argv);
-      printf("init: exec rio failed\n");
-      exit(1);
+    
+    if(gui_available){
+        printf("[INIT] GUI mode detected\n");
+        // Create GUI-specific devices
+        mknod("/dev/input", INPUT, 0);
+        printf("\n[INIT] Starting Window Manager...\n");
+        
+        pid = fork();
+        if(pid < 0){
+          printf("init: fork failed\n");
+          exit(1);
+        }
+        if(pid == 0){
+          char *argv_rio[] = { "rio", 0 };
+          exec("/bin/rio", argv_rio);
+          printf("init: exec rio failed\n");
+          exit(1);
+        }
+    } else {
+        printf("\n[INIT] Headless mode - starting shell...\n");
+        
+        pid = fork();
+        if(pid < 0){
+          printf("init: fork failed\n");
+          exit(1);
+        }
+        if(pid == 0){
+          char *argv_sh[] = { "sh", 0 };
+          exec("/bin/sh", argv_sh);
+          printf("init: exec sh failed\n");
+          exit(1);
+        }
     }
 
     for(;;){

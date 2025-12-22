@@ -10,19 +10,48 @@
 // Input Event Codes
 #define EV_ABS 0x03
 #define EV_KEY 0x01
+#define EV_REL 0x02
 #define ABS_X 0x00
 #define ABS_Y 0x01
+#define REL_WHEEL 0x08
 #define BTN_LEFT 0x110
+#define BTN_RIGHT 0x111
+#define BTN_MIDDLE 0x112
 
 // Keyboard
 #define KEY_ESC 1
 #define KEY_1 2
+#define KEY_LEFTSHIFT 42
+#define KEY_RIGHTSHIFT 54
+#define KEY_CAPSLOCK 58
+#define KEY_UP 103
+#define KEY_DOWN 108
+#define KEY_LEFT 105
+#define KEY_RIGHT 106
 
 struct input_event {
   uint16 type;
   uint16 code;
   uint32 value;
 };
+
+// Maps (Linux Input Event codes)
+char keymap[128] = {
+  0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', // 0-14
+  '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', // 15-28
+  0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\', // 29-43
+  'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0, '*', 0, ' ' // 44-57
+};
+
+char keymap_shift[128] = {
+  0, 27, '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '\b', // 0-14
+  '\t', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '\n', // 15-28
+  0, 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', '~', 0, '|', // 29-43
+  'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', 0, '*', 0, ' ' // 44-57
+};
+
+int shift_state = 0;
+int capslock_state = 0;
 
 // Terminal
 #define COLS 60
@@ -39,6 +68,11 @@ typedef struct Terminal {
     char display[ROWS][COLS];
     int cursor_row;
     int cursor_col;
+    int esc_state; // 0=Norm, 1=Esc, 2=Bracket
+    int input_start_row;  // Where current input line started
+    int input_start_col;  // Column where input started
+    char ansi_buf[16];    // Buffer for ANSI parameters
+    int ansi_idx;         // Index into ansi_buf
 } Terminal;
 
 typedef struct Window {
@@ -64,39 +98,183 @@ int drag_off_x, drag_off_y;
 Window *focus_win = 0;
 
 // Text Drawing
+// Helper to draw char at specific pixel location
 void
-draw_char(Window *w, int r, int c, char ch, uint color)
+draw_char_at(Window *w, int px, int py, char ch, uint color)
 {
-    if(ch < ' ' || ch > '~') return; // Skip non-printables
-    
+    if(ch < ' ' || ch > '~') return;
     int index = ch - ' ';
-    int px = PADDING + c * CHAR_W;
-    int py = 20 + PADDING + r * CHAR_H; // +20 for Titlebar
-    
     for(int y=0; y<8; y++){
         for(int x=0; x<8; x++){
             if((font_8x8[index][y] >> (7-x)) & 1){
                  w->buf[(py+y)*w->w + (px+x)] = color;
             } else {
-                 w->buf[(py+y)*w->w + (px+x)] = 0xFF000000; // Black bg
+                 w->buf[(py+y)*w->w + (px+x)] = 0xFF000000;
             }
         }
     }
 }
 
 void
+redraw_line(Window *w, int r)
+{
+    Terminal *t = &w->term;
+    int base_py = 20 + PADDING + r * CHAR_H;
+    
+    // Clear line first
+    for(int y=0; y<CHAR_H; y++){
+        for(int x=0; x<w->w; x++){
+            w->buf[(base_py+y)*w->w + x] = 0xFF000000;
+        }
+    }
+
+    int px = PADDING;
+    for(int c=0; c<COLS; c++){
+        int py = base_py;
+        char ch = t->display[r][c];
+        
+        if(r == t->cursor_row && c == t->cursor_col){
+             // Draw Brace Cursor { ch }
+             draw_char_at(w, px, py, '{', 0xFFFFFF00); // Yellow Brace
+             px += CHAR_W;
+             if(ch != 0 && ch != ' ') {
+                 draw_char_at(w, px, py, ch, 0xFFFFFFFF);
+                 px += CHAR_W;
+             } else {
+                 // Cursor on empty space, check if at end of line?
+                 // Just draw space?
+                 // draw_char_at space is black. 
+             }
+             draw_char_at(w, px, py, '}', 0xFFFFFF00);
+             px += CHAR_W;
+        } else {
+             if(ch != 0) draw_char_at(w, px, py, ch, 0xFFFFFFFF);
+             px += CHAR_W;
+        }
+    }
+}
+
+// Legacy wrapper if needed, but we will update term_putc to use redraw_line
+void
+draw_char(Window *w, int r, int c, char ch, uint color)
+{
+    // Redirect to redraw_line to ensure consistency
+    // But update buffer first
+    w->term.display[r][c] = ch;
+    redraw_line(w, r);
+}
+
+void
 term_putc(Window *w, char c)
 {
     Terminal *t = &w->term;
-    if(c == '\n'){
-        t->cursor_col = 0;
-        t->cursor_row++;
-    } else if(c == '\b'){
-        if(t->cursor_col > 0) t->cursor_col--;
-    } else {
-        t->display[t->cursor_row][t->cursor_col] = c;
-        draw_char(w, t->cursor_row, t->cursor_col, c, 0xFFFFFFFF);
-        t->cursor_col++;
+    
+    // State Machine
+    if(t->esc_state == 0){
+        // Normal
+        if(c == 27){
+            t->esc_state = 1;
+        } else if(c == '\n'){
+            int old_r = t->cursor_row;
+            t->cursor_col = 0;
+            t->cursor_row++;
+            redraw_line(w, old_r);   // Clear cursor from old line
+            redraw_line(w, t->cursor_row); // Draw cursor on new line
+        } else if(c == '\r'){
+            t->cursor_col = 0;
+            redraw_line(w, t->cursor_row);
+        } else if(c == '\b'){
+            // Only allow backspace if we're after the input boundary
+            int can_backspace = 0;
+            if(t->cursor_row == t->input_start_row && t->cursor_col > t->input_start_col){
+                can_backspace = 1;
+            } else if(t->cursor_row > t->input_start_row && t->cursor_col > 0){
+                can_backspace = 1;
+            }
+            
+            if(can_backspace){
+                // Shift all characters after cursor one position left
+                for(int c = t->cursor_col; c < COLS - 1; c++){
+                    t->display[t->cursor_row][c - 1] = t->display[t->cursor_row][c];
+                }
+                // Clear the last character in the row
+                t->display[t->cursor_row][COLS - 1] = ' ';
+                
+                // Move cursor back
+                t->cursor_col--;
+                
+                // Redraw the entire line to show the shift
+                redraw_line(w, t->cursor_row);
+            }
+        } else {
+            t->display[t->cursor_row][t->cursor_col] = c;
+            t->cursor_col++;
+            redraw_line(w, t->cursor_row);
+        }
+    } else if(t->esc_state == 1){
+        // Saw ESC
+        if(c == '['){
+            t->esc_state = 2; // CSI
+            t->ansi_idx = 0;
+            t->ansi_buf[0] = 0;
+        } else {
+            t->esc_state = 0; // Fallback
+        }
+    } else if(t->esc_state == 2){
+        // CSI Parameter bytes (0-9, ;)
+        if(c >= '0' && c <= '9'){
+            if(t->ansi_idx < 15){
+                t->ansi_buf[t->ansi_idx++] = c;
+                t->ansi_buf[t->ansi_idx] = 0;
+            }
+        } else if(c == ';'){
+            if(t->ansi_idx < 15){
+                t->ansi_buf[t->ansi_idx++] = c;
+                t->ansi_buf[t->ansi_idx] = 0;
+            }
+        } else if(c >= 0x40 && c <= 0x7E){
+            // Final byte - execute command
+            if(c == 'J'){
+                // Clear screen (usually ESC[2J)
+                if(t->ansi_buf[0] == '2' || t->ansi_buf[0] == 0){
+                    // Clear entire display
+                    for(int r = 0; r < ROWS; r++){
+                        for(int col = 0; col < COLS; col++){
+                            t->display[r][col] = ' ';
+                        }
+                        redraw_line(w, r);
+                    }
+                }
+            } else if(c == 'H'){
+                // Cursor position (ESC[row;colH)
+                // Parse row;col from ansi_buf
+                int row = 0, col = 0;
+                char *p = t->ansi_buf;
+                while(*p && *p != ';'){
+                    row = row * 10 + (*p - '0');
+                    p++;
+                }
+                if(*p == ';') p++;
+                while(*p){
+                    col = col * 10 + (*p - '0');
+                    p++;
+                }
+                // Convert 1-based to 0-based
+                if(row > 0) row--;
+                if(col > 0) col--;
+                
+                // Set cursor position
+                int old_row = t->cursor_row;
+                if(row < ROWS) t->cursor_row = row;
+                if(col < COLS) t->cursor_col = col;
+                
+                // Redraw affected lines
+                redraw_line(w, old_row);
+                if(t->cursor_row != old_row) redraw_line(w, t->cursor_row);
+            }
+            // Reset state
+            t->esc_state = 0;
+        }
     }
     
     if(t->cursor_col >= COLS){
@@ -145,6 +323,8 @@ spawn_window(int x, int y)
   // Setup Terminal
   win->term.cursor_row = 0;
   win->term.cursor_col = 0;
+  win->term.input_start_row = 0;
+  win->term.input_start_col = 0;
   for(int r=0; r<ROWS; r++)
       for(int c=0; c<COLS; c++)
           win->term.display[r][c] = ' ';
@@ -271,6 +451,7 @@ main(int argc, char *argv[])
       // IF we block on input, terminals will freeze until mouse moves.
       // So we need readavail on input_fd too!
       
+      int did_update = 0;
       if(readavail(input_fd) > 0){
           n = read(input_fd, &ev, sizeof(ev));
           if(n == sizeof(ev)){
@@ -285,11 +466,13 @@ main(int argc, char *argv[])
                       composite(); // Redraw cursor
                   }
               } else if(ev.type == EV_KEY){
+                  // Mouse Buttons
                   if(ev.code == BTN_LEFT){
                       mouse_btn = (ev.value == 1);
                       if(mouse_btn){
                           Window *hit = find_window_at(mouse_x, mouse_y);
                           if(hit){
+                              // Raise window/Focus
                               focus_win = hit;
                               if(mouse_y < hit->y + 20){
                                   drag_win = hit;
@@ -300,13 +483,78 @@ main(int argc, char *argv[])
                       } else {
                           drag_win = 0;
                       }
-                  } else {
-                      // Keyboard
-                      if(ev.value == 1 && focus_win){ // Key Press
-                          char ch = 0;
-                          if(ev.code < 128) ch = kbd_map[ev.code];
-                          if(ch != 0){
-                              write(focus_win->term.fd_in, &ch, 1);
+                  }
+                  // Keyboard State
+                  else if(ev.code == KEY_LEFTSHIFT || ev.code == KEY_RIGHTSHIFT){
+                      shift_state = (ev.value == 1);
+                  } else if(ev.code == KEY_CAPSLOCK){
+                      if(ev.value == 1) capslock_state = !capslock_state;
+                  }
+                  // Arrow Keys - Local Cursor Movement
+                  else if(ev.value == 1 || ev.value == 2){ // Press or Repeat
+                      if(focus_win){
+                          Terminal *t = &focus_win->term;
+                          int old_row = t->cursor_row;
+                          
+                          if(ev.code == KEY_LEFT){
+                              // Don't move left past the input boundary
+                              if(t->cursor_row == t->input_start_row && t->cursor_col > t->input_start_col){
+                                  t->cursor_col--;
+                                  redraw_line(focus_win, old_row);
+                                  did_update = 1;
+                              } else if(t->cursor_row > t->input_start_row && t->cursor_col > 0){
+                                  t->cursor_col--;
+                                  redraw_line(focus_win, old_row);
+                                  did_update = 1;
+                              }
+                          } else if(ev.code == KEY_RIGHT){
+                              if(t->cursor_col < COLS - 1){
+                                  t->cursor_col++;
+                                  redraw_line(focus_win, old_row);
+                                  did_update = 1;
+                              }
+                          } else if(ev.code == KEY_UP){
+                              // Don't move up past the input boundary row
+                              if(t->cursor_row > t->input_start_row){
+                                  t->cursor_row--;
+                                  redraw_line(focus_win, old_row);
+                                  redraw_line(focus_win, t->cursor_row);
+                                  did_update = 1;
+                              }
+                          } else if(ev.code == KEY_DOWN){
+                              if(t->cursor_row < ROWS - 1){
+                                  t->cursor_row++;
+                                  redraw_line(focus_win, old_row);
+                                  redraw_line(focus_win, t->cursor_row);
+                                  did_update = 1;
+                              }
+                          }
+                          // Character Input
+                          else if(ev.code < 128){
+                              char ch = 0;
+                              int is_alpha = 0;
+                              // Alpha ranges: 16-25 (q-p), 30-38 (a-l), 44-50 (z-m)
+                              if((ev.code >= 16 && ev.code <= 25) || (ev.code >= 30 && ev.code <= 38) || (ev.code >= 44 && ev.code <= 50))
+                                  is_alpha = 1;
+
+                              if(is_alpha){
+                                  if(shift_state ^ capslock_state) ch = keymap_shift[ev.code];
+                                  else ch = keymap[ev.code];
+                              } else {
+                                  if(shift_state) ch = keymap_shift[ev.code];
+                                  else ch = keymap[ev.code];
+                              }
+                              
+                              if(ch != 0){
+                                  // printf("key: %d -> %c\n", ev.code, ch);
+                                  
+                                  // Local Echo
+                                  term_putc(focus_win, ch);
+                                  did_update = 1;
+                                  
+                                  // Send to Shell
+                                  write(focus_win->term.fd_in, &ch, 1);
+                              }
                           }
                       }
                   }
@@ -315,11 +563,11 @@ main(int argc, char *argv[])
       }
       
       // 2. Process Terminals
-      int did_update = 0;
       Window *w = windows;
       while(w){
           int avail = readavail(w->term.fd_out);
           if(avail > 0){
+               // printf("shell output: %d bytes\n", avail);
                char buf[64];
                if(avail > 64) avail = 64;
                int r = read(w->term.fd_out, buf, avail);
@@ -327,6 +575,9 @@ main(int argc, char *argv[])
                    for(int i=0; i<r; i++){
                        term_putc(w, buf[i]);
                    }
+                   // Mark where user input starts (after shell output)
+                   w->term.input_start_row = w->term.cursor_row;
+                   w->term.input_start_col = w->term.cursor_col;
                    did_update = 1;
                }
           }
