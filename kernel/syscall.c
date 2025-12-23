@@ -109,6 +109,7 @@ extern uint64 sys_shmget(void);
 extern uint64 sys_shmat(void);
 extern uint64 sys_readavail(void);
 extern uint64 sys_gpu_flush(void);
+extern uint64 sys_suluctl_poll(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -141,6 +142,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_shmat]   sys_shmat,
 [SYS_readavail] sys_readavail,
 [SYS_gpu_flush] sys_gpu_flush,
+[SYS_suluctl_poll] sys_suluctl_poll,
 };
 
 void

@@ -100,6 +100,12 @@ void            gwininit(void);
 int             gwinread(int, uint64, int, int);
 int             gwinwrite(int, uint64, int, int);
 
+// suluctl.c
+void            suluctlinit(void);
+int             suluctlread(int, uint64, int, int);
+int             suluctlwrite(int, uint64, int, int);
+int             suluctl_poll(void);  // For Sulu to poll for commands
+
 
 void            virtio_gpu_init(void);
 

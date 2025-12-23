@@ -13,6 +13,7 @@ main()
   if(cpuid() == 0){
       consoleinit();
       gwininit();
+      suluctlinit();
       printfinit();
       printf("\n");
       printf("booting kernel.\n");

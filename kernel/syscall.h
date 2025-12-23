@@ -27,3 +27,4 @@
 #define SYS_shmat  26
 #define SYS_readavail 27
 #define SYS_gpu_flush 28
+#define SYS_suluctl_poll 29

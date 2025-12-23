@@ -83,7 +83,7 @@ copyout(char *s)
   for(int ai = 0; ai < sizeof(addrs)/sizeof(addrs[0]); ai++){
     uint64 addr = addrs[ai];
 
-    int fd = open("README", 0);
+    int fd = open("/bin/README", 0);
     if(fd < 0){
       printf("open(README) failed\n");
       exit(1);

@@ -9,7 +9,7 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 
-char *argv[] = { "/bin/rio", 0 };
+char *argv[] = { "/bin/sulu", 0 };
 
 int
 main(void)
@@ -20,6 +20,7 @@ main(void)
     open("/dev/console", O_RDWR);
   }
   mknod("/dev/gwin0", GWIN, 0);
+  mknod("/dev/suluctl", SULUCTL, 0);
   // Note: /dev/input is created conditionally based on GUI availability
 
   dup(0);  // stdout
@@ -68,7 +69,7 @@ main(void)
         printf("[INIT] GUI mode detected\n");
         // Create GUI-specific devices
         mknod("/dev/input", INPUT, 0);
-        printf("\n[INIT] Starting Window Manager...\n");
+        printf("\n[INIT] starting Sulu...\n");
         
         pid = fork();
         if(pid < 0){
@@ -76,9 +77,25 @@ main(void)
           exit(1);
         }
         if(pid == 0){
-          char *argv_rio[] = { "rio", 0 };
-          exec("/bin/rio", argv_rio);
-          printf("init: exec rio failed\n");
+          char *argv_sulu[] = { "sulu", 0 };
+          exec("/bin/sulu", argv_sulu);
+          printf("init: exec sulu failed\n");
+          exit(1);
+        }
+        
+        // ALSO start a shell on the UART console for serial access
+        printf("[INIT] Starting serial console shell...\n");
+        int shell_pid = fork();
+        if(shell_pid < 0){
+          printf("init: fork failed\n");
+          exit(1);
+        }
+        if(shell_pid == 0){
+          // Enable cursor for serial console
+          printf("\033[?25h");
+          char *argv_sh[] = { "sh", 0 };
+          exec("/bin/sh", argv_sh);
+          printf("init: exec sh failed\n");
           exit(1);
         }
     } else {

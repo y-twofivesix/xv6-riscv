@@ -43,4 +43,5 @@ entry("shmget");
 entry("shmat");
 entry("readavail");
 entry("gpu_flush");
+entry("suluctl_poll");
 

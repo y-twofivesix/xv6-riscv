@@ -7,8 +7,11 @@
 #define SCREEN_W 1280
 #define SCREEN_H 800
 
-#define BACK_COLOR (uint)0xFF003333
+#define BACK_COLOR (uint)0xFF08113B
 #define CURSOR_COLOR (uint)0xFF00FFFFFF
+#define UNFOCUS_COLOR (uint)0xFF120A8F
+#define FOCUS_COLOR (uint)0xFF00FFCB
+#define TERM_BACK (uint)0x55040720
 
 // Input Event Codes
 #define EV_ABS 0x03
@@ -24,6 +27,9 @@
 // Keyboard
 #define KEY_ESC 1
 #define KEY_1 2
+#define KEY_E 18
+#define KEY_LEFTCTRL 29
+#define KEY_RIGHTCTRL 97
 #define KEY_LEFTSHIFT 42
 #define KEY_RIGHTSHIFT 54
 #define KEY_CAPSLOCK 58
@@ -54,6 +60,7 @@ char keymap_shift[128] = {
 };
 
 int shift_state = 0;
+int ctrl_pressed = 0;
 int capslock_state = 0;
 
 // Terminal
@@ -102,6 +109,26 @@ int drag_off_x, drag_off_y;
 Window *focus_win = 0;
 
 void update_title_colors();
+
+// Rate limiting for drag operations to reduce jitter
+static int composite_skip_counter = 0;
+#define COMPOSITE_RATE_LIMIT 2  // composite every Nth event (2 = 50% rate)
+
+// Helper: find last non-empty character position in a row
+int
+find_line_end(Terminal *t, int row)
+{
+    for(int c = COLS - 1; c >= 0; c--){
+        if(t->display[row][c] != 0 && t->display[row][c] != ' '){
+            return c + 1; // Return position after last char (where cursor can be)
+        }
+    }
+    // Empty line - cursor can be at start
+    if(row == t->input_start_row){
+        return t->input_start_col;
+    }
+    return 0;
+}
 // Text Drawing
 // Helper to draw char at specific pixel location
 void
@@ -114,7 +141,7 @@ draw_char_at(Window *w, int px, int py, char ch, uint color)
             if((font_8x8[index][y] >> (7-x)) & 1){
                  w->buf[(py+y)*w->w + (px+x)] = color;
             } else {
-                 w->buf[(py+y)*w->w + (px+x)] = 0xFF000000;
+                 w->buf[(py+y)*w->w + (px+x)] = TERM_BACK;
             }
         }
     }
@@ -129,7 +156,7 @@ redraw_line(Window *w, int r)
     // Clear line first
     for(int y=0; y<CHAR_H; y++){
         for(int x=0; x<w->w; x++){
-            w->buf[(base_py+y)*w->w + x] = 0xFF000000;
+            w->buf[(base_py+y)*w->w + x] = TERM_BACK;
         }
     }
 
@@ -140,7 +167,7 @@ redraw_line(Window *w, int r)
         
         // Determine colors based on focus
         uint text_color = (w == focus_win) ? 0xFFFFFFFF : 0xFF888888; // White or grey
-        uint cursor_color = (w == focus_win) ? 0xFF00FFCB : 0xFF888888; // Cyan or grey
+        uint cursor_color = (w == focus_win) ? FOCUS_COLOR : 0xFF888888; // Cyan or grey
         
         if(r == t->cursor_row && c == t->cursor_col){
              // Draw Brace Cursor { ch }
@@ -321,12 +348,12 @@ spawn_window(int x, int y)
   // Clear Buffer
   for(int i=0; i<win->w*win->h; i++) win->buf[i] = 0xFFCCCCCC;
   // Title Bar - will be cyan when focused, blue otherwise
-  uint title_color = 0xFF3333AA; // Blue for unfocused (will update on focus)
+  uint title_color = UNFOCUS_COLOR; // Blue for unfocused (will update on focus)
   for(int py=0; py<20; py++)
     for(int px=0; px<win->w; px++) win->buf[py*win->w + px] = title_color;
   // Client Area Black
   for(int py=20; py<win->h; py++)
-    for(int px=0; px<win->w; px++) win->buf[py*win->w + px] = 0xFF000000;
+    for(int px=0; px<win->w; px++) win->buf[py*win->w + px] = TERM_BACK;
 
   // Setup Terminal
   win->term.cursor_row = 0;
@@ -345,7 +372,7 @@ spawn_window(int x, int y)
   
   int pid = fork();
   if(pid < 0){
-      printf("rio: fork failed\n");
+      printf("sulu: fork failed\n");
       return 0;
   }
   if(pid == 0){
@@ -465,12 +492,20 @@ draw_cursor(int x, int y)
            
   last_x = x;
   last_y = y;
+  
+  // TODO: Implement dirty region tracking to only flush changed screen areas
+  // instead of entire 1280x800 framebuffer. Would significantly reduce GPU
+  // transfer overhead, especially for cursor-only updates (10x10 vs 1024000 pixels)
 }
 
 // Composite all windows (without cursor)
 void
 composite()
 {
+  // TODO: Optimize to only redraw windows that changed position/content
+  // Currently clears and redraws all windows even if only one moved
+  // Future: Track dirty regions and skip unchanged windows
+  
   for(int i=0; i<SCREEN_W*SCREEN_H; i++) fb[i] = BACK_COLOR; // Clear
   
   Window *w = windows;
@@ -507,11 +542,21 @@ char kbd_map[128] = { 0, 0, '1','2','3','4','5','6','7','8','9','0','-','=','\b'
 int
 main(int argc, char *argv[])
 {
-  printf("rio: starting...\n");
+
   int shmid = shmget(SHM_FB, 0);
   if(shmid < 0) exit(1);
   fb = (uint*) shmat(shmid, 0);
   if((uint64)fb == -1) exit(1);
+  
+  // Register with suluctl
+  int suluctl_fd = open("/dev/suluctl", O_WRONLY);
+  if(suluctl_fd >= 0) {
+    write(suluctl_fd, "register", 8);
+    close(suluctl_fd);
+  }
+  
+  // Suspension state
+  int suspended = 0;
   
   // Cursor state for optimization
   int prev_mouse_x = -1, prev_mouse_y = -1;
@@ -526,12 +571,45 @@ main(int argc, char *argv[])
   
   struct input_event ev;
   while(1){
+      // 0. Check for suspend/resume commands
+      int cmd = suluctl_poll();
+      if(cmd == 1) {  // Suspend
+        suspended = 1;
+        // Clear screen to black
+        for(int i=0; i<SCREEN_W*SCREEN_H; i++) fb[i] = 0xFF000000;
+        gpu_flush();
+      } else if(cmd == 2) {  // Resume
+        suspended = 0;
+        // Full redraw
+        composite();
+        draw_cursor(mouse_x, mouse_y);
+        gpu_flush();
+      } else if(cmd == 3) {  // Quit
+        exit(0);
+      }
+      
+      // If suspended, don't process input or terminals normally
+      // BUT allow ESC key to resume as emergency fallback
+      if(suspended) {
+        // Check for ESC key to resume
+        if(readavail(input_fd) > 0){
+          struct input_event ev;
+          int n = read(input_fd, &ev, sizeof(ev));
+          if(n == sizeof(ev) && ev.type == EV_KEY && ev.code == KEY_ESC && ev.value == 1){
+            // ESC pressed - emergency resume!
+            suspended = 0;
+            printf("sulu: emergency resume via ESC key\n");
+            composite();
+            draw_cursor(mouse_x, mouse_y);
+            gpu_flush();
+          }
+        }
+        sleep(10);  // Don't burn CPU
+        continue;
+      }
+      
       // 1. Process Input
       int n = 0; 
-      // Need non-blocking read on input too? 
-      // No, inputread sleeps but we also need to update terminals.
-      // IF we block on input, terminals will freeze until mouse moves.
-      // So we need readavail on input_fd too!
       
       int did_update = 0;
       if(readavail(input_fd) > 0){
@@ -541,11 +619,28 @@ main(int argc, char *argv[])
                   if(ev.code == ABS_X) mouse_x = (ev.value * SCREEN_W) / 32767;
                   if(ev.code == ABS_Y) mouse_y = (ev.value * SCREEN_H) / 32767;
                   if(mouse_btn && drag_win){
+                      // Dragging - rate limit composite to reduce jitter
                       drag_win->x = mouse_x - drag_off_x;
                       drag_win->y = mouse_y - drag_off_y;
-                      composite(); draw_cursor(mouse_x, mouse_y); gpu_flush();
+                      
+                      // Only composite every Nth event (50% rate for smoothness)
+                      if(++composite_skip_counter >= COMPOSITE_RATE_LIMIT){
+                          composite_skip_counter = 0;
+                          composite();
+                          draw_cursor(mouse_x, mouse_y);
+                          gpu_flush();
+                      } else {
+                          // Skip composite, just update cursor
+                          draw_cursor(mouse_x, mouse_y);
+                          gpu_flush();
+                      }
                   } else {
-                      if(prev_mouse_x != mouse_x || prev_mouse_y != mouse_y){ draw_cursor(mouse_x, mouse_y); gpu_flush(); prev_mouse_x = mouse_x; prev_mouse_y = mouse_y; }
+                      if(prev_mouse_x != mouse_x || prev_mouse_y != mouse_y){
+                          draw_cursor(mouse_x, mouse_y);
+                          gpu_flush();
+                          prev_mouse_x = mouse_x;
+                          prev_mouse_y = mouse_y;
+                      }
                   }
               } else if(ev.type == EV_KEY){
                   // Mouse Buttons
@@ -570,8 +665,19 @@ main(int argc, char *argv[])
                   // Keyboard State
                   else if(ev.code == KEY_LEFTSHIFT || ev.code == KEY_RIGHTSHIFT){
                       shift_state = (ev.value == 1);
+                  } else if(ev.code == KEY_LEFTCTRL || ev.code == KEY_RIGHTCTRL){
+                      ctrl_pressed = (ev.value == 1);
                   } else if(ev.code == KEY_CAPSLOCK){
                       if(ev.value == 1) capslock_state = !capslock_state;
+                  }
+                  // Hotkeys
+                  else if(ev.code == KEY_E && ev.value == 1 && ctrl_pressed){
+                      // Ctrl+E -> Suspend
+                      int fd = open("/dev/suluctl", O_WRONLY);
+                      if(fd >= 0){
+                          write(fd, "suspend", 7);
+                          close(fd);
+                      }
                   }
                   // Arrow Keys - Local Cursor Movement
                   else if(ev.value == 1 || ev.value == 2){ // Press or Repeat
@@ -591,7 +697,9 @@ main(int argc, char *argv[])
                                   did_update = 1;
                               }
                           } else if(ev.code == KEY_RIGHT){
-                              if(t->cursor_col < COLS - 1){
+                              // Don't move past the end of actual content
+                              int line_end = find_line_end(t, t->cursor_row);
+                              if(t->cursor_col < line_end && t->cursor_col < COLS - 1){
                                   t->cursor_col++;
                                   redraw_line(focus_win, old_row);
                                   did_update = 1;

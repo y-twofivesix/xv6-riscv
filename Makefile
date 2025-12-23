@@ -11,6 +11,7 @@ OBJS = \
   $K/spinlock.o \
   $K/string.o \
   $K/gwin.o \
+  $K/suluctl.o \
   $K/virtio_gpu.o \
   $K/virtio_input.o \
   $K/main.o \
@@ -21,6 +22,7 @@ OBJS = \
   $K/trap.o \
   $K/syscall.o \
   $K/sysproc.o \
+  $K/syssuluctl.o \
   $K/bio.o \
   $K/fs.o \
   $K/log.o \
@@ -145,9 +147,10 @@ UPROGS=\
 	$U/_pwd\
 	$U/_clear\
 	$U/_ipctest\
-	$U/_rio\
+	$U/_sulu\
 	$U/_tuitest\
 	$U/_gtest\
+	$U/_suluctl_demo\
 	$U/_shmtest
 
 .PHONY: fs.img

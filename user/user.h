@@ -30,6 +30,7 @@ int recv(int*, char*, int);
 int shmget(int, int);
 void* shmat(int, void*);
 int gpu_flush(void);
+int suluctl_poll(void);
 
 
 // ulib.c
