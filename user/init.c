@@ -19,7 +19,7 @@ main(void)
     mknod("/dev/console", CONSOLE, 0);
     open("/dev/console", O_RDWR);
   }
-  mknod("/dev/gwin0", GWIN, 0);
+  // mknod("/dev/gwin0", GWIN, 0);
   mknod("/dev/suluctl", SULUCTL, 0);
   // Note: /dev/input is created conditionally based on GUI availability
 

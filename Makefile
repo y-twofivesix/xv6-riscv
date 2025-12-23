@@ -10,7 +10,6 @@ OBJS = \
   $K/kalloc.o \
   $K/spinlock.o \
   $K/string.o \
-  $K/gwin.o \
   $K/suluctl.o \
   $K/virtio_gpu.o \
   $K/virtio_input.o \
@@ -149,7 +148,6 @@ UPROGS=\
 	$U/_ipctest\
 	$U/_sulu\
 	$U/_tuitest\
-	$U/_gtest\
 	$U/_suluctl_demo\
 	$U/_shmtest
 

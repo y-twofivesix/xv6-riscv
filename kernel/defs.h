@@ -96,9 +96,9 @@ int             ipc_send(int, char*, int);
 int             ipc_recv(int*, char*, int);
 
 // gwin.c
-void            gwininit(void);
-int             gwinread(int, uint64, int, int);
-int             gwinwrite(int, uint64, int, int);
+// void            gwininit(void);
+// int             gwinwrite(int, uint64, int, int);
+// int             gwinread(int, uint64, int, int);
 
 // suluctl.c
 void            suluctlinit(void);

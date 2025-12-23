@@ -564,6 +564,29 @@ spawn_window(int x, int y)
   return win;
 }
 
+// Move window to the end of the list (top of z-order)
+void
+window_raise(Window *w)
+{
+  if(!windows || !w) return;
+  if(w->next == 0) return; // Already at top
+
+  // Remove from current position
+  if(windows == w){
+      windows = w->next;
+  } else {
+      Window *prev = windows;
+      while(prev && prev->next != w) prev = prev->next;
+      if(prev) prev->next = w->next;
+  }
+  
+  // Append to end
+  Window *curr = windows;
+  while(curr->next) curr = curr->next;
+  curr->next = w;
+  w->next = 0;
+}
+
 // Update title bar colors based on focus
 void
 update_title_colors()
@@ -747,6 +770,7 @@ main(int argc, char *argv[])
                               // Raise window/Focus
                               Window *old_focus = focus_win;
                               focus_win = hit;
+                              window_raise(focus_win); // Always bring to front on click
                               update_title_colors();
                               
                               // Mark both old and new focus windows dirty
