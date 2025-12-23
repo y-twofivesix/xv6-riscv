@@ -8,7 +8,7 @@
 #define SCREEN_H 800
 
 #define BACK_COLOR (uint)0xFF08113B
-#define CURSOR_COLOR (uint)0xFF00FFFFFF
+#define CURSOR_COLOR (uint)0xFFFF0000
 #define UNFOCUS_COLOR (uint)0xFF120A8F
 #define FOCUS_COLOR (uint)0xFF00FFCB
 #define TERM_BACK (uint)0x55040720
@@ -113,6 +113,154 @@ void update_title_colors();
 // Rate limiting for drag operations to reduce jitter
 static int composite_skip_counter = 0;
 #define COMPOSITE_RATE_LIMIT 2  // composite every Nth event (2 = 50% rate)
+
+// ============================================================================
+// Z-Index Based Compositing System
+// ============================================================================
+
+// Rectangle helper
+typedef struct {
+    int x, y, w, h;
+} Rect;
+
+// Cursor state (highest z-index, always on top)
+static Rect cursor_rect = {640, 400, 10, 10};
+
+// Dirty rectangle accumulator (union of all dirty regions)
+static Rect dirty = {0, 0, 0, 0};
+static int dirty_valid = 0;
+
+// Check if two rectangles intersect
+int rects_intersect(Rect *a, Rect *b) {
+    return !(a->x + a->w <= b->x || b->x + b->w <= a->x ||
+             a->y + a->h <= b->y || b->y + b->h <= a->y);
+}
+
+// Mark a region as dirty (will be composited later)
+void mark_dirty(int x, int y, int w, int h) {
+    if (!dirty_valid) {
+        dirty.x = x;
+        dirty.y = y;
+        dirty.w = w;
+        dirty.h = h;
+        dirty_valid = 1;
+    } else {
+        // Union the rectangles
+        int x2 = dirty.x + dirty.w;
+        int y2 = dirty.y + dirty.h;
+        if (x < dirty.x) dirty.x = x;
+        if (y < dirty.y) dirty.y = y;
+        if (x + w > x2) x2 = x + w;
+        if (y + h > y2) y2 = y + h;
+        dirty.w = x2 - dirty.x;
+        dirty.h = y2 - dirty.y;
+    }
+}
+
+// Composite a specific region in z-order: background -> windows -> cursor
+void composite_region(Rect *r) {
+    // Clamp to screen
+    int rx = r->x < 0 ? 0 : r->x;
+    int ry = r->y < 0 ? 0 : r->y;
+    int rx2 = r->x + r->w;
+    int ry2 = r->y + r->h;
+    if (rx2 > SCREEN_W) rx2 = SCREEN_W;
+    if (ry2 > SCREEN_H) ry2 = SCREEN_H;
+    
+    // 1. Draw background for this region
+    for (int y = ry; y < ry2; y++) {
+        for (int x = rx; x < rx2; x++) {
+            fb[y * SCREEN_W + x] = BACK_COLOR;
+        }
+    }
+    
+    // 2. Draw windows in z-order (linked list order = z-order for now)
+    Window *w = windows;
+    while (w) {
+        // Check if window intersects region
+        if (!(w->x + w->w <= rx || rx2 <= w->x ||
+              w->y + w->h <= ry || ry2 <= w->y)) {
+            // Draw overlapping portion
+            int wx1 = (rx > w->x) ? rx : w->x;
+            int wy1 = (ry > w->y) ? ry : w->y;
+            int wx2 = (rx2 < w->x + w->w) ? rx2 : w->x + w->w;
+            int wy2 = (ry2 < w->y + w->h) ? ry2 : w->y + w->h;
+            
+            for (int y = wy1; y < wy2; y++) {
+                for (int x = wx1; x < wx2; x++) {
+                    int buf_x = x - w->x;
+                    int buf_y = y - w->y;
+                    fb[y * SCREEN_W + x] = w->buf[buf_y * w->w + buf_x];
+                }
+            }
+        }
+        w = w->next;
+    }
+    
+    // 3. Draw cursor last (highest z-index)
+    if (!(cursor_rect.x + cursor_rect.w <= rx || rx2 <= cursor_rect.x ||
+          cursor_rect.y + cursor_rect.h <= ry || ry2 <= cursor_rect.y)) {
+        int cx1 = (rx > cursor_rect.x) ? rx : cursor_rect.x;
+        int cy1 = (ry > cursor_rect.y) ? ry : cursor_rect.y;
+        int cx2 = (rx2 < cursor_rect.x + 10) ? rx2 : cursor_rect.x + 10;
+        int cy2 = (ry2 < cursor_rect.y + 10) ? ry2 : cursor_rect.y + 10;
+        
+        for (int y = cy1; y < cy2; y++) {
+            for (int x = cx1; x < cx2; x++) {
+                fb[y * SCREEN_W + x] = CURSOR_COLOR;
+            }
+        }
+    }
+}
+
+// Composite and flush all dirty regions
+void composite_dirty_and_flush() {
+    if (!dirty_valid) return;
+    
+    // Composite the dirty region
+    composite_region(&dirty);
+    
+    // Flush to GPU (partial flush now that kernel is fixed)
+    int x = dirty.x < 0 ? 0 : dirty.x;
+    int y = dirty.y < 0 ? 0 : dirty.y;
+    int w = dirty.w;
+    int h = dirty.h;
+    if (x + w > SCREEN_W) w = SCREEN_W - x;
+    if (y + h > SCREEN_H) h = SCREEN_H - y;
+    if (w > 0 && h > 0) {
+        gpu_flush_rect(x, y, w, h);
+    }
+    
+    dirty_valid = 0;
+}
+
+// Move cursor - marks dirty and composites
+void cursor_move(int new_x, int new_y) {
+    // Clamp
+    if (new_x > SCREEN_W - 10) new_x = SCREEN_W - 10;
+    if (new_y > SCREEN_H - 10) new_y = SCREEN_H - 10;
+    if (new_x < 0) new_x = 0;
+    if (new_y < 0) new_y = 0;
+    
+    // Mark old position dirty
+    mark_dirty(cursor_rect.x, cursor_rect.y, 10, 10);
+    
+    // Update position
+    cursor_rect.x = new_x;
+    cursor_rect.y = new_y;
+    
+    // Mark new position dirty
+    mark_dirty(new_x, new_y, 10, 10);
+    
+    // Composite and flush
+    composite_dirty_and_flush();
+}
+
+// Mark a window's bounds as dirty
+void window_mark_dirty(Window *w) {
+    if (!w) return;
+    mark_dirty(w->x, w->y, w->w, w->h);
+}
 
 // Helper: find last non-empty character position in a row
 int
@@ -436,78 +584,16 @@ update_title_colors()
   }
 }
 
-// Draw cursor at current mouse position
-// Also erases previous cursor by restoring background
-void
-draw_cursor(int x, int y)
-{
-  static int last_x = -1, last_y = -1;
-  
-  // Erase old cursor by restoring background from windows
-  if(last_x >= 0 && last_y >= 0){
-      int cx = last_x;
-      int cy = last_y;
-      if(cx > SCREEN_W-10) cx = SCREEN_W-10;
-      if(cy > SCREEN_H-10) cy = SCREEN_H-10;
-      if(cx < 0) cx = 0;
-      if(cy < 0) cy = 0;
-      
-      // Restore background for old cursor area
-      for(int dy=0; dy<10; dy++){
-          for(int dx=0; dx<10; dx++){
-              int sx = cx + dx;
-              int sy = cy + dy;
-              if(sx >= SCREEN_W || sy >= SCREEN_H) continue;
-              
-              // Restore from background or window
-              fb[sy*SCREEN_W + sx] = BACK_COLOR; // Background color
-              
-              // Check if any window covers this pixel
-              Window *w = windows;
-              while(w){
-                  if(sx >= w->x && sx < w->x + w->w && 
-                     sy >= w->y && sy < w->y + w->h){
-                      int wx = sx - w->x;
-                      int wy = sy - w->y;
-                      fb[sy*SCREEN_W + sx] = w->buf[wy*w->w + wx];
-                      break;
-                  }
-                  w = w->next;
-              }
-          }
-      }
-  }
-  
-  // Draw new cursor
-  int cx = x;
-  int cy = y;
-  if(cx > SCREEN_W-10) cx = SCREEN_W-10;
-  if(cy > SCREEN_H-10) cy = SCREEN_H-10;
-  if(cx < 0) cx = 0;
-  if(cy < 0) cy = 0;
-  
-  for(int dy=0; dy<10; dy++)
-      for(int dx=0; dx<10; dx++)
-           fb[(cy+dy)*SCREEN_W + (cx+dx)] = CURSOR_COLOR;
-           
-  last_x = x;
-  last_y = y;
-  
-  // TODO: Implement dirty region tracking to only flush changed screen areas
-  // instead of entire 1280x800 framebuffer. Would significantly reduce GPU
-  // transfer overhead, especially for cursor-only updates (10x10 vs 1024000 pixels)
-}
+// [draw_cursor removed - now using cursor_move() with z-index compositing]
 
-// Composite all windows (without cursor)
+// Composite all windows AND cursor (using z-index: bg -> windows -> cursor)
 void
 composite()
 {
-  // TODO: Optimize to only redraw windows that changed position/content
-  // Currently clears and redraws all windows even if only one moved
-  // Future: Track dirty regions and skip unchanged windows
+  // Clear to background
+  for(int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = BACK_COLOR;
   
-  for(int i=0; i<SCREEN_W*SCREEN_H; i++) fb[i] = BACK_COLOR; // Clear
-  
+  // Draw windows
   Window *w = windows;
   while(w){
       int x_end = w->x + w->w;
@@ -519,10 +605,21 @@ composite()
           if(y < 0) continue;
           for(int x = w->x, dx = 0; x < x_end; x++, dx++){
                if(x < 0) continue;
-               fb[y*SCREEN_W + x] = w->buf[dy*w->w + dx];
+               fb[y * SCREEN_W + x] = w->buf[dy * w->w + dx];
           }
       }
       w = w->next;
+  }
+  
+  // Draw cursor on top (highest z-index)
+  for(int dy = 0; dy < 10; dy++){
+      for(int dx = 0; dx < 10; dx++){
+          int px = cursor_rect.x + dx;
+          int py = cursor_rect.y + dy;
+          if(px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H){
+              fb[py * SCREEN_W + px] = CURSOR_COLOR;
+          }
+      }
   }
 }
 
@@ -567,7 +664,9 @@ main(int argc, char *argv[])
   spawn_window(50, 50);
   spawn_window(600, 100);
   
+  // Initial full screen composite and flush
   composite();
+  gpu_flush();
   
   struct input_event ev;
   while(1){
@@ -580,9 +679,8 @@ main(int argc, char *argv[])
         gpu_flush();
       } else if(cmd == 2) {  // Resume
         suspended = 0;
-        // Full redraw
+        // Full redraw (composite includes cursor)
         composite();
-        draw_cursor(mouse_x, mouse_y);
         gpu_flush();
       } else if(cmd == 3) {  // Quit
         exit(0);
@@ -600,7 +698,6 @@ main(int argc, char *argv[])
             suspended = 0;
             printf("sulu: emergency resume via ESC key\n");
             composite();
-            draw_cursor(mouse_x, mouse_y);
             gpu_flush();
           }
         }
@@ -619,25 +716,23 @@ main(int argc, char *argv[])
                   if(ev.code == ABS_X) mouse_x = (ev.value * SCREEN_W) / 32767;
                   if(ev.code == ABS_Y) mouse_y = (ev.value * SCREEN_H) / 32767;
                   if(mouse_btn && drag_win){
-                      // Dragging - rate limit composite to reduce jitter
+                      // Dragging window - update window position and recomposite
                       drag_win->x = mouse_x - drag_off_x;
                       drag_win->y = mouse_y - drag_off_y;
                       
-                      // Only composite every Nth event (50% rate for smoothness)
+                      // Rate limit composite to reduce jitter
                       if(++composite_skip_counter >= COMPOSITE_RATE_LIMIT){
                           composite_skip_counter = 0;
+                          // Update cursor position
+                          cursor_rect.x = mouse_x > SCREEN_W - 10 ? SCREEN_W - 10 : (mouse_x < 0 ? 0 : mouse_x);
+                          cursor_rect.y = mouse_y > SCREEN_H - 10 ? SCREEN_H - 10 : (mouse_y < 0 ? 0 : mouse_y);
                           composite();
-                          draw_cursor(mouse_x, mouse_y);
-                          gpu_flush();
-                      } else {
-                          // Skip composite, just update cursor
-                          draw_cursor(mouse_x, mouse_y);
                           gpu_flush();
                       }
                   } else {
+                      // Just cursor movement - use efficient dirty region update
                       if(prev_mouse_x != mouse_x || prev_mouse_y != mouse_y){
-                          draw_cursor(mouse_x, mouse_y);
-                          gpu_flush();
+                          cursor_move(mouse_x, mouse_y);
                           prev_mouse_x = mouse_x;
                           prev_mouse_y = mouse_y;
                       }
@@ -650,8 +745,17 @@ main(int argc, char *argv[])
                           Window *hit = find_window_at(mouse_x, mouse_y);
                           if(hit){
                               // Raise window/Focus
+                              Window *old_focus = focus_win;
                               focus_win = hit;
                               update_title_colors();
+                              
+                              // Mark both old and new focus windows dirty
+                              if(old_focus && old_focus != hit){
+                                  window_mark_dirty(old_focus);
+                              }
+                              window_mark_dirty(hit);
+                              composite_dirty_and_flush();
+                              
                               if(mouse_y < hit->y + 20){
                                   drag_win = hit;
                                   drag_off_x = mouse_x - hit->x;
@@ -690,10 +794,12 @@ main(int argc, char *argv[])
                               if(t->cursor_row == t->input_start_row && t->cursor_col > t->input_start_col){
                                   t->cursor_col--;
                                   redraw_line(focus_win, old_row);
+                                  window_mark_dirty(focus_win);
                                   did_update = 1;
                               } else if(t->cursor_row > t->input_start_row && t->cursor_col > 0){
                                   t->cursor_col--;
                                   redraw_line(focus_win, old_row);
+                                  window_mark_dirty(focus_win);
                                   did_update = 1;
                               }
                           } else if(ev.code == KEY_RIGHT){
@@ -702,6 +808,7 @@ main(int argc, char *argv[])
                               if(t->cursor_col < line_end && t->cursor_col < COLS - 1){
                                   t->cursor_col++;
                                   redraw_line(focus_win, old_row);
+                                  window_mark_dirty(focus_win);
                                   did_update = 1;
                               }
                           } else if(ev.code == KEY_UP){
@@ -710,6 +817,7 @@ main(int argc, char *argv[])
                                   t->cursor_row--;
                                   redraw_line(focus_win, old_row);
                                   redraw_line(focus_win, t->cursor_row);
+                                  window_mark_dirty(focus_win);
                                   did_update = 1;
                               }
                           } else if(ev.code == KEY_DOWN){
@@ -717,6 +825,7 @@ main(int argc, char *argv[])
                                   t->cursor_row++;
                                   redraw_line(focus_win, old_row);
                                   redraw_line(focus_win, t->cursor_row);
+                                  window_mark_dirty(focus_win);
                                   did_update = 1;
                               }
                           }
@@ -741,6 +850,7 @@ main(int argc, char *argv[])
                                   
                                   // Local Echo
                                   term_putc(focus_win, ch);
+                                  window_mark_dirty(focus_win);  // Mark for immediate display
                                   did_update = 1;
                                   
                                   // Send to Shell
@@ -769,6 +879,8 @@ main(int argc, char *argv[])
                    // Mark where user input starts (after shell output)
                    w->term.input_start_row = w->term.cursor_row;
                    w->term.input_start_col = w->term.cursor_col;
+                   // Mark this window as dirty for partial flush
+                   window_mark_dirty(w);
                    did_update = 1;
                }
           }
@@ -776,9 +888,8 @@ main(int argc, char *argv[])
       }
       
       if(did_update){
-          composite();
-          draw_cursor(mouse_x, mouse_y);
-          gpu_flush();
+          // Use dirty region compositing instead of full screen
+          composite_dirty_and_flush();
       }
       
       // Avoid busy loop if idle?

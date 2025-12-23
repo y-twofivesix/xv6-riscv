@@ -30,6 +30,7 @@ int recv(int*, char*, int);
 int shmget(int, int);
 void* shmat(int, void*);
 int gpu_flush(void);
+int gpu_flush_rect(int x, int y, int w, int h);
 int suluctl_poll(void);
 
 

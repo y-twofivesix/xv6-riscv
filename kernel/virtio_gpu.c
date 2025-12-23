@@ -485,7 +485,9 @@ virtio_gpu_transfer(uint32 x, uint32 y, uint32 w, uint32 h)
   gpu.xfer.y = y;
   gpu.xfer.width = w;
   gpu.xfer.height = h;
-  gpu.xfer.offset = 0;
+  // Offset into the backing buffer: (y * stride + x) * bytes_per_pixel
+  // Stride = 1280 pixels, bytes_per_pixel = 4 (BGRA)
+  gpu.xfer.offset = (y * 1280 + x) * 4;
 
   virtio_gpu_command(0, VIRTIO_GPU_CMD_TRANSFER_TO_HOST_2D, &gpu.xfer, sizeof(gpu.xfer), (void*)&gpu.success, sizeof(gpu.success));
   if(gpu.success.type != VIRTIO_GPU_RESP_OK_NODATA)

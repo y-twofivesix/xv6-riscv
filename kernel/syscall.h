@@ -28,3 +28,4 @@
 #define SYS_readavail 27
 #define SYS_gpu_flush 28
 #define SYS_suluctl_poll 29
+#define SYS_gpu_flush_rect 30

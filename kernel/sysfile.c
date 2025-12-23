@@ -583,3 +583,24 @@ sys_gpu_flush(void)
   virtio_gpu_flush(0, 0, 1280, 800);
   return 0;
 }
+
+uint64
+sys_gpu_flush_rect(void)
+{
+  int x, y, w, h;
+  argint(0, &x);
+  argint(1, &y);
+  argint(2, &w);
+  argint(3, &h);
+  
+  // Clamp to screen bounds
+  if(x < 0) { w += x; x = 0; }
+  if(y < 0) { h += y; y = 0; }
+  if(x + w > 1280) w = 1280 - x;
+  if(y + h > 800) h = 800 - y;
+  if(w <= 0 || h <= 0) return 0;
+  
+  virtio_gpu_transfer(x, y, w, h);
+  virtio_gpu_flush(x, y, w, h);
+  return 0;
+}
