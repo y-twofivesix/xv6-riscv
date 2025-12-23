@@ -10,11 +10,22 @@
 #include "file.h"
 
 // Sulu control device - allows userspace to suspend/resume the Sulu window manager
-// Since xv6 doesn't have Unix-style signals, we use shared state that Sulu polls
+// Also handles client window registration for the Sulu API
 
 static struct spinlock suluctl_lock;
 static int sulu_pid = -1;  // PID of the Sulu process
 static int suspend_requested = 0;  // 0=none, 1=suspend, 2=resume, 3=quit
+
+// Client window request queue
+#define MAX_PENDING_CLIENTS 8
+struct client_request {
+    int pid;        // Client PID
+    int shm_key;    // SHM key the client allocated
+    int width;
+    int height;
+    int valid;      // 1 if pending, 0 if empty
+};
+static struct client_request pending_clients[MAX_PENDING_CLIENTS];
 
 void
 suluctlinit(void)
@@ -22,6 +33,8 @@ suluctlinit(void)
   initlock(&suluctl_lock, "suluctl");
   devsw[SULUCTL].read = suluctlread;
   devsw[SULUCTL].write = suluctlwrite;
+  for(int i = 0; i < MAX_PENDING_CLIENTS; i++)
+    pending_clients[i].valid = 0;
 }
 
 // Helper to find process by PID
@@ -76,12 +89,25 @@ suluctlread(int user_dst, uint64 dst, int n, int off)
   return n;
 }
 
-// Write accepts commands: "register", "suspend", "resume", "quit"  
+// Parse a simple integer from string
+static int
+parse_int(char *s, int *val)
+{
+  int v = 0;
+  while(*s >= '0' && *s <= '9') {
+    v = v * 10 + (*s - '0');
+    s++;
+  }
+  *val = v;
+  return 0;
+}
+
+// Write accepts commands: "register", "suspend", "resume", "quit", "connect <shm_key> <w> <h>"
 int
 suluctlwrite(int user_src, uint64 src, int n, int off)
 {
-  char cmd[16];
-  if(n > 15) n = 15;
+  char cmd[64];
+  if(n > 63) n = 63;
   
   if(copyin(myproc()->pagetable, cmd, src, n) < 0)
     return -1;
@@ -97,13 +123,49 @@ suluctlwrite(int user_src, uint64 src, int n, int off)
     return n;
   }
   
+  // Client window connection request: "connect <shm_key> <width> <height>"
+  if(strncmp(cmd, "connect ", 8) == 0) {
+    int shm_key, width, height;
+    char *p = cmd + 8;
+    
+    
+    // Parse shm_key
+    parse_int(p, &shm_key);
+    while(*p && *p != ' ') p++;
+    while(*p == ' ') p++;
+    
+    // Parse width
+    parse_int(p, &width);
+    while(*p && *p != ' ') p++;
+    while(*p == ' ') p++;
+    
+    // Parse height
+    parse_int(p, &height);
+    
+    
+    // Find empty slot in queue
+    for(int i = 0; i < MAX_PENDING_CLIENTS; i++) {
+      if(!pending_clients[i].valid) {
+        pending_clients[i].pid = myproc()->pid;
+        pending_clients[i].shm_key = shm_key;
+        pending_clients[i].width = width;
+        pending_clients[i].height = height;
+        pending_clients[i].valid = 1;
+        release(&suluctl_lock);
+        return n;
+      }
+    }
+    release(&suluctl_lock);
+    return -1;  // Queue full
+  }
+  
   if(sulu_pid < 0) {
     release(&suluctl_lock);
     return -1;  // No Sulu registered
   }
   
-  struct proc *p = findproc(sulu_pid);
-  if(p == 0) {
+  struct proc *pr = findproc(sulu_pid);
+  if(pr == 0) {
     sulu_pid = -1;
     release(&suluctl_lock);
     return -1;  // Sulu process not found
@@ -133,7 +195,7 @@ suluctlwrite(int user_src, uint64 src, int n, int off)
   return -1;  // Unknown command
 }
 
-// Function for Sulu to poll - returns command and clears it
+// Function for Sulu to poll - returns suspend/resume command and clears it
 int
 suluctl_poll(void)
 {
@@ -145,4 +207,26 @@ suluctl_poll(void)
   }
   release(&suluctl_lock);
   return cmd;
+}
+
+// Function for Sulu to get pending client requests
+// Returns: 0 if no request, 1 if request found
+// Fills in pid, shm_key, width, height
+int
+suluctl_get_request(int *pid, int *shm_key, int *width, int *height)
+{
+  acquire(&suluctl_lock);
+  for(int i = 0; i < MAX_PENDING_CLIENTS; i++) {
+    if(pending_clients[i].valid) {
+      *pid = pending_clients[i].pid;
+      *shm_key = pending_clients[i].shm_key;
+      *width = pending_clients[i].width;
+      *height = pending_clients[i].height;
+      pending_clients[i].valid = 0;  // Mark as consumed
+      release(&suluctl_lock);
+      return 1;
+    }
+  }
+  release(&suluctl_lock);
+  return 0;
 }

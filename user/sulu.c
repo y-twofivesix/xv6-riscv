@@ -2,6 +2,7 @@
 #include "user/user.h"
 #include "kernel/fcntl.h"
 #include "user/font.h"
+#include "user/sulu_client.h"
 
 // Screen
 #define SCREEN_W 1280
@@ -86,6 +87,10 @@ typedef struct Terminal {
     int ansi_idx;         // Index into ansi_buf
 } Terminal;
 
+// Window types
+#define WIN_TYPE_TERMINAL 0
+#define WIN_TYPE_CLIENT   1
+
 typedef struct Window {
   int id;
   int x, y;
@@ -93,7 +98,11 @@ typedef struct Window {
   uint *buf; 
   struct Window *next;
   
-  // Terminal State
+  int type;                       // WIN_TYPE_TERMINAL or WIN_TYPE_CLIENT
+  int client_pid;                 // PID of client process (for CLIENT type)
+  struct sulu_window_shm *shm;    // Shared memory header (for CLIENT type)
+  
+  // Terminal State (only used for WIN_TYPE_TERMINAL)
   Terminal term;
 } Window;
 
@@ -186,11 +195,32 @@ void composite_region(Rect *r) {
             int wx2 = (rx2 < w->x + w->w) ? rx2 : w->x + w->w;
             int wy2 = (ry2 < w->y + w->h) ? ry2 : w->y + w->h;
             
-            for (int y = wy1; y < wy2; y++) {
-                for (int x = wx1; x < wx2; x++) {
-                    int buf_x = x - w->x;
-                    int buf_y = y - w->y;
-                    fb[y * SCREEN_W + x] = w->buf[buf_y * w->w + buf_x];
+            if(w->type == WIN_TYPE_CLIENT) {
+                // Client window: title bar (20px) + client buffer
+                for (int y = wy1; y < wy2; y++) {
+                    for (int x = wx1; x < wx2; x++) {
+                        int buf_x = x - w->x;
+                        int buf_y = y - w->y;
+                        
+                        if(buf_y < 20) {
+                            // Title bar
+                            uint color = (w == focus_win) ? FOCUS_COLOR : UNFOCUS_COLOR;
+                            fb[y * SCREEN_W + x] = color;
+                        } else {
+                            // Client pixel buffer (offset by title bar)
+                            int client_y = buf_y - 20;
+                            fb[y * SCREEN_W + x] = w->buf[client_y * w->w + buf_x];
+                        }
+                    }
+                }
+            } else {
+                // Terminal window: use buf directly
+                for (int y = wy1; y < wy2; y++) {
+                    for (int x = wx1; x < wx2; x++) {
+                        int buf_x = x - w->x;
+                        int buf_y = y - w->y;
+                        fb[y * SCREEN_W + x] = w->buf[buf_y * w->w + buf_x];
+                    }
                 }
             }
         }
@@ -492,6 +522,9 @@ spawn_window(int x, int y)
   win->h = ROWS*(CHAR_H + LINE_SPACING) + 2*PADDING + 20;
   win->buf = malloc(win->w * win->h * 4);
   win->next = 0;
+  win->type = WIN_TYPE_TERMINAL;
+  win->client_pid = 0;
+  win->shm = 0;
 
   // Clear Buffer
   for(int i=0; i<win->w*win->h; i++) win->buf[i] = 0xFFCCCCCC;
@@ -564,6 +597,66 @@ spawn_window(int x, int y)
   return win;
 }
 
+// Spawn a client window (for external programs using Sulu API)
+Window*
+spawn_client_window(int client_pid, int shm_key, int width, int height)
+{
+  // Map the client's shared memory
+  int shmid = shmget(shm_key, 0);  // Use existing
+  if(shmid < 0) {
+  printf("sulu: failed to get client shm key=%d\n", shm_key);
+    return 0;
+  }
+  
+  struct sulu_window_shm *shm = (struct sulu_window_shm*)shmat(shmid, 0);
+  if(shm == (void*)-1) {
+    printf("sulu: failed to attach client shm\n");
+    return 0;
+  }
+  
+  // Calculate total size including header
+  int total_height = height + 20; // Add title bar
+  
+  Window *win = malloc(sizeof(Window));
+  win->id = next_win_id++;
+  win->x = 100 + (next_win_id * 30) % 400;  // Cascade position
+  win->y = 100 + (next_win_id * 30) % 300;
+  win->w = width;
+  win->h = total_height;
+  win->buf = sulu_pixels(shm);  // Use client's pixel buffer
+  win->next = 0;
+  win->type = WIN_TYPE_CLIENT;
+  win->client_pid = client_pid;
+  win->shm = shm;
+  
+  // Initialize the SHM header
+  shm->win_id = win->id;
+  shm->width = width;
+  shm->height = height;
+  shm->flags = 0;
+  shm->cmd_ring.head = 0;
+  shm->cmd_ring.tail = 0;
+  shm->cmd_ring.size = SULU_CMD_RING_SIZE;
+  shm->event_ring.head = 0;
+  shm->event_ring.tail = 0;
+  shm->event_ring.size = SULU_EVENT_RING_SIZE;
+  
+  // Clear the client's pixel buffer (NOT including title bar - that's drawn by composite())
+  for(int i = 0; i < width * height; i++)
+    win->buf[i] = 0xFF000000;  // Black
+  
+  // Link into window list
+  if(!windows) windows = win;
+  else {
+    struct Window *curr = windows;
+    while(curr->next) curr = curr->next;
+    curr->next = win;
+  }
+  focus_win = win;
+  update_title_colors();
+  return win;
+}
+
 // Move window to the end of the list (top of z-order)
 void
 window_raise(Window *w)
@@ -593,7 +686,13 @@ update_title_colors()
 {
   Window *w = windows;
   while(w){
-      // Update title bar color
+      // Skip client windows - their title bar is drawn during composite()
+      if(w->type == WIN_TYPE_CLIENT){
+          w = w->next;
+          continue;
+      }
+      
+      // Update title bar color for terminal windows
       uint color = (w == focus_win) ? 0xFF00FFCB : 0xFF3333AA;
       for(int py=0; py<20; py++)
           for(int px=0; px<w->w; px++)
@@ -693,6 +792,7 @@ main(int argc, char *argv[])
   
   struct input_event ev;
   while(1){
+      
       // 0. Check for suspend/resume commands
       int cmd = suluctl_poll();
       if(cmd == 1) {  // Suspend
@@ -708,6 +808,46 @@ main(int argc, char *argv[])
       } else if(cmd == 3) {  // Quit
         exit(0);
       }
+      
+      // 0.5. Check for new client window requests
+      {
+        int cpid, shm_key, cwidth, cheight;
+        if(suluctl_get_request(&cpid, &shm_key, &cwidth, &cheight)) {
+          Window *new_win = spawn_client_window(cpid, shm_key, cwidth, cheight);
+          if(new_win) {
+            window_mark_dirty(new_win);
+            composite_dirty_and_flush();
+          }
+        }
+      }
+      
+      // 0.6. Process client cmd_rings (BLIT commands)
+
+      {
+        Window *w = windows;
+        while(w) {
+          if(w->type == WIN_TYPE_CLIENT && w->shm) {
+            struct sulu_ring *r = &w->shm->cmd_ring;
+            int cmd_count = 0;
+            // TODO: Check if this limit can be removed once freeze bug is fixed
+            // Process at most 4 commands per iteration to avoid starving input
+            while(r->head != r->tail && cmd_count < 4) {
+              struct sulu_cmd *cmd = &w->shm->cmd_buf[r->tail];
+              if(cmd->type == SULU_CMD_BLIT) {
+                // Mark window region dirty and composite
+                window_mark_dirty(w);
+                composite_dirty_and_flush();
+              } else if(cmd->type == SULU_CMD_CLOSE) {
+                // TODO: Close window
+              }
+              r->tail = (r->tail + 1) % SULU_CMD_RING_SIZE;
+              cmd_count++;
+            }
+          }
+          w = w->next;
+        }
+      }
+
       
       // If suspended, don't process input or terminals normally
       // BUT allow ESC key to resume as emergency fallback
@@ -887,9 +1027,13 @@ main(int argc, char *argv[])
           }
       }
       
-      // 2. Process Terminals
+      // 2. Process Terminals (skip client windows)
       Window *w = windows;
       while(w){
+          if(w->type == WIN_TYPE_CLIENT) {
+              w = w->next;
+              continue;
+          }
           int avail = readavail(w->term.fd_out);
           if(avail > 0){
                // printf("shell output: %d bytes\n", avail);

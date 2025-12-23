@@ -105,6 +105,7 @@ void            suluctlinit(void);
 int             suluctlread(int, uint64, int, int);
 int             suluctlwrite(int, uint64, int, int);
 int             suluctl_poll(void);  // For Sulu to poll for commands
+int             suluctl_get_request(int*, int*, int*, int*);  // Get pending client request
 
 
 void            virtio_gpu_init(void);

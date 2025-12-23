@@ -8,17 +8,19 @@
 
 #define MAX_SHM 8
 #define SHM_KEY_FB 0xFB00
+#define MAX_SHM_PAGES 16  // Max pages per SHM segment (64KB max per segment)
 
 // External from virtio_gpu.c
 extern int gui_active;
 
 struct {
   struct spinlock lock;
-  void *pages[MAX_SHM];
-  uint size[MAX_SHM];     // Size in bytes
+  void *pages[MAX_SHM][MAX_SHM_PAGES]; // Array of page pointers for each segment
+  int npages[MAX_SHM];                  // Number of pages in each segment
+  uint size[MAX_SHM];                   // Size in bytes
   int keys[MAX_SHM];
   int used[MAX_SHM];
-  int is_static[MAX_SHM]; // 1 = static kernel memory (no kref/kfree)
+  int is_static[MAX_SHM];               // 1 = static kernel memory (no kref/kfree)
 } shm_table;
 
 void
@@ -193,29 +195,48 @@ sys_shmget(void)
           return -1; // No GPU hardware available
        }
        
-       void *mem;
        int segment_size;
+       int npages_needed;
 
        if(is_fb){
-          // Framebuffer (Static)
-          mem = (void*)framebuffer; // Defined in defs.h/virtio_gpu.c
-          segment_size = 1280 * 800 * 4; 
+          // Framebuffer (Static) - special case
+          segment_size = 1280 * 800 * 4;
+          npages_needed = (segment_size + PGSIZE - 1) / PGSIZE;
+          // Store framebuffer as single entry (it's already contiguous)
+          shm_table.pages[i][0] = (void*)framebuffer;
+          shm_table.npages[i] = 1;  // Treat as single large region
+          shm_table.is_static[i] = 1;
        } else {
-          // Standard Shared Page
-          mem = kalloc();
-          if(mem == 0){
+          // Multi-page shared memory allocation
+          npages_needed = (size + PGSIZE - 1) / PGSIZE; // Round up
+          if(npages_needed <= 0) npages_needed = 1;
+          if(npages_needed > MAX_SHM_PAGES){
              release(&shm_table.lock);
-             return -1;
+             return -1; // Too large
           }
-          memset(mem, 0, PGSIZE);
-          segment_size = PGSIZE;
+          
+          // Allocate each page and store in array
+          for(int p = 0; p < npages_needed; p++){
+             void *page = kalloc();
+             if(page == 0){
+                // Rollback: free previously allocated pages
+                for(int r = 0; r < p; r++){
+                   kfree(shm_table.pages[i][r]);
+                }
+                release(&shm_table.lock);
+                return -1;
+             }
+             memset(page, 0, PGSIZE);
+             shm_table.pages[i][p] = page;
+          }
+          shm_table.npages[i] = npages_needed;
+          shm_table.is_static[i] = 0;
+          segment_size = size;
        }
        
-       shm_table.pages[i] = mem;
        shm_table.size[i] = segment_size;
        shm_table.keys[i] = key;
        shm_table.used[i] = 1;
-       shm_table.is_static[i] = is_fb;
        
        release(&shm_table.lock);
        return i;
@@ -252,25 +273,38 @@ sys_shmat(void)
       return -1;
   }
   
-  void *base_pa = shm_table.pages[shmid];
   uint seg_size = shm_table.size[shmid];
   int is_stat = shm_table.is_static[shmid];
+  int stored_npages = shm_table.npages[shmid];
   
-  uint npages = PGROUNDUP(seg_size) / PGSIZE;
+  // For static (framebuffer), calculate npages from size
+  // For dynamic SHM, use stored npages
+  uint npages = is_stat ? (PGROUNDUP(seg_size) / PGSIZE) : stored_npages;
+  
   
   for(int i = 0; i < npages; i++){
-      void *pa = base_pa + i*PGSIZE;
+      void *pa;
       uint64 va = addr + i*PGSIZE;
       
-      // 2. Increment Ref Count (only if not static)
+      if(is_stat){
+        // Framebuffer: contiguous, compute from base
+        pa = shm_table.pages[shmid][0] + i*PGSIZE;
+      } else {
+        // Dynamic SHM: use stored page pointers
+        pa = shm_table.pages[shmid][i];
+      }
+      
+      // Increment Ref Count (only if not static)
       if(!is_stat) kref(pa);
       
-      // 3. Map it
-      // PTE_W | PTE_R | PTE_U | PTE_S
+      // Map it
       if(mappages(p->pagetable, va, PGSIZE, (uint64)pa, PTE_W|PTE_R|PTE_U|PTE_S) != 0){
-          // Rollback logic is complex for multi-page. simple panic/fail for now
-          // We should ideally kfree what we allocated.
-          if(!is_stat) kfree(pa); // Free current
+          // Rollback: unmap and unref previously mapped pages
+          for(int r = 0; r < i; r++){
+            void *rpa = is_stat ? (shm_table.pages[shmid][0] + r*PGSIZE) : shm_table.pages[shmid][r];
+            uvmunmap(p->pagetable, addr + r*PGSIZE, 1, 0);
+            if(!is_stat) kfree(rpa);
+          }
           release(&shm_table.lock);
           return -1;
       }

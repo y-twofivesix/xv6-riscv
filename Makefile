@@ -149,7 +149,9 @@ UPROGS=\
 	$U/_sulu\
 	$U/_tuitest\
 	$U/_suluctl_demo\
-	$U/_shmtest
+	$U/_shmtest\
+	$U/_rect_demo\
+	$U/_size_test
 
 .PHONY: fs.img
 fs.img: mkfs/mkfs README INFO $(UPROGS)
