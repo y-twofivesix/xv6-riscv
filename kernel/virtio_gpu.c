@@ -214,9 +214,11 @@ virtio_gpu_command(int q, uint32 type, void *cmd, uint32 cmd_len, void *resp, ui
   avail->idx++;
   __sync_synchronize();
   *R(gpu.base, VIRTIO_MMIO_QUEUE_NOTIFY) = q;
-
+  
+  release(&gpu.lock);
   while(q == 0 && gpu.used_idx == used->idx)
     ;
+  acquire(&gpu.lock);
   
   if(q == 0) gpu.used_idx++;
   
@@ -258,8 +260,10 @@ virtio_gpu_command_3(int q, uint32 type, void *cmd1, uint32 len1, void *cmd2, ui
   __sync_synchronize();
   *R(gpu.base, VIRTIO_MMIO_QUEUE_NOTIFY) = q;
 
+  release(&gpu.lock);
   while(q == 0 && gpu.used_idx == used->idx)
     ;
+  acquire(&gpu.lock);
   
   if(q == 0) gpu.used_idx++;
   free_desc(q, idx[0]);
@@ -398,6 +402,8 @@ virtio_gpu_init(void)
 
   printf("[GPU] Driver initialized at 0x%lx.\n", base);
   printf("[GPU] Starting handshake...\n");
+  
+  acquire(&gpu.lock);
 
   // 1. GET_DISPLAY_INFO
   memset(&gpu.req, 0, sizeof(gpu.req));
@@ -422,6 +428,7 @@ virtio_gpu_init(void)
     printf("[GPU] Resource 1 created (1280x800).\n");
   } else {
     printf("[GPU] Resource creation failed! Resp: 0x%x\n", gpu.success.type);
+    release(&gpu.lock);
     return;
   }
 
@@ -455,6 +462,8 @@ virtio_gpu_init(void)
   } else {
     printf("[GPU] Set scanout failed! Resp: 0x%x\n", gpu.success.type);
   }
+  
+  release(&gpu.lock);
 
   // Initial Clear and Flush (Charcoal background)
   for(int i = 0; i < 1280 * 800; i++) framebuffer[i] = 0xFF222222;

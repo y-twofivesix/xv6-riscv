@@ -407,6 +407,22 @@ Window* find_window_at(int x, int y){
   return hit;
 }
 
+// Helper to focus and raise a window
+void focus_window(Window *w) {
+    if(!w) return;
+    
+    // Changing focus?
+    Window *old_focus = focus_win;
+    focus_win = w;
+    
+    // Raise to top of Z-order
+    window_raise(w);
+    
+    // Mark windows dirty for repainting (border color change)
+    if(old_focus && old_focus != w) window_mark_dirty(old_focus);
+    window_mark_dirty(w);
+}
+
 int
 main(int argc, char *argv[])
 {
@@ -416,11 +432,12 @@ main(int argc, char *argv[])
   fb = (uint*) shmat(shmid, 0);
   if((uint64)fb == -1) exit(1);
   
-  // Register with suluctl
-  int suluctl_fd = open("/dev/suluctl", O_WRONLY);
-  if(suluctl_fd >= 0) {
-    write(suluctl_fd, "register", 8);
-    close(suluctl_fd);
+  // Register as Server by opening /dev/sulu
+  // Note: We use O_RDWR.
+  int sulu_fd = open("/dev/sulu", O_RDWR);
+  if(sulu_fd < 0) {
+      printf("sulu: failed to open /dev/sulu\n");
+      exit(1);
   }
   
   // Suspension state
@@ -437,74 +454,91 @@ main(int argc, char *argv[])
   gpu_flush();
   
   struct input_event ev;
+  // Define message struct locally or via header? 
+  // We need the struct definition from sulu_dev.c!
+  // It's not in a header yet. Let's define it here matching the kernel one.
+  struct sulu_msg {
+    int type;
+    int pid;
+    int val1;
+    int val2;
+  };
+
+
   while(1){
+      int did_work = 0;
       
-      // 0. Check for suspend/resume commands
-      int cmd = suluctl_poll();
-      if(cmd == 1) {  // Suspend
-        suspended = 1;
-        // Clear screen to black
-        for(int i=0; i<SCREEN_W*SCREEN_H; i++) fb[i] = 0xFF000000;
-        gpu_flush();
-      } else if(cmd == 2) {  // Resume
-        suspended = 0;
-        // Full redraw (composite includes cursor)
-        composite();
-        gpu_flush();
-      } else if(cmd == 3) {  // Quit
-        exit(0);
-      }
-      
-      // 0.5. Check for new client window requests
-      {
-        int cpid, shm_key, cwidth, cheight;
-        if(suluctl_get_request(&cpid, &shm_key, &cwidth, &cheight)) {
-          Window *new_win = spawn_client_window(cpid, shm_key, cwidth, cheight);
-          if(new_win) {
-            window_mark_dirty(new_win);
-            composite_dirty_and_flush();
+      // 1. Process Window System Events (Connect/Disconnect)
+      struct sulu_msg msg;
+      while(read(sulu_fd, &msg, sizeof(msg)) == sizeof(msg)) {
+          did_work = 1;
+          if(msg.type == 1) { // SULU_EVENT_CONNECT
+              int pid = msg.pid;
+              int key = msg.val1;
+              // Unpack val2: (width << 16) | height
+              int w = (msg.val2 >> 16) & 0xFFFF;
+              int h = msg.val2 & 0xFFFF;
+              
+              // printf("sulu: connect pid=%d key=%d w=%d h=%d\n", pid, key, w, h);
+              Window *new_win = spawn_client_window(pid, key, w, h);
+              if(new_win) {
+                window_mark_dirty(new_win);
+                composite_dirty_and_flush();
+              }
+          } else if(msg.type == 2) { // SULU_EVENT_DISCONNECT
+              // printf("sulu: disconnect pid=%d\n", msg.pid);
+              // Find and close all windows for this PID
+              Window *w = windows;
+              while(w) {
+                  Window *next_w = w->next;
+                  if(w->type == WIN_TYPE_CLIENT && w->client_pid == msg.pid) {
+                      close_window(w);
+                  }
+                  w = next_w;
+              }
+              // Force full redraw to be safe
+              composite(); 
+              gpu_flush();
           }
-        }
-      }
+      } 
       
       // 0.6. Process client cmd_rings (BLIT commands)
+      // Note: We still poll SHM command rings for high-perf rendering commands
+      // This is the "Hybrid" part!
       {
         Window *w = windows;
         while(w) {
           Window *next_w = w->next; // Save next pointer in case w is freed
           if(w->type == WIN_TYPE_CLIENT && w->shm) {
-            // Check if client is still alive
-            if(exists(w->client_pid) == 0) {
-                 printf("sulu: client %d died, closing window %d\n", w->client_pid, w->id);
-                 close_window(w);
-                 w = next_w;
-                 continue;
-            }
+            
+            // Note: sys_exists check REMOVED (kernel notifies us via DISCONNECT event)
 
             struct sulu_ring *r = &w->shm->cmd_ring;
             int closed = 0;
-            while(r->head != r->tail) {
+            int cmds_processed = 0;
+            while(r->head != r->tail && cmds_processed++ < 10) {
+              did_work = 1;
               struct sulu_cmd *cmd = &w->shm->cmd_buf[r->tail];
               if(cmd->type == SULU_CMD_BLIT) {
                 // Mark window region dirty and composite
                 window_mark_dirty(w);
-                composite_dirty_and_flush();
+                // Batch flush: Don't flush here, wait for end of loop
+                // composite_dirty_and_flush();
               } else if(cmd->type == SULU_CMD_CLOSE) {
                 close_window(w);
                 closed = 1;
-                break; // Window is gone, stop processing commands
+                break; // Window is gone
               }
               r->tail = (r->tail + 1) % SULU_CMD_RING_SIZE;
             }
             if(closed) {
-                w = next_w;
-                continue;
+               w = next_w;
+               continue;
             }
           }
           w = next_w;
         }
       }
-
       
       // If suspended, don't process input normally
       // BUT allow ESC key to resume as emergency fallback
@@ -521,17 +555,19 @@ main(int argc, char *argv[])
             gpu_flush();
           }
         }
-        sleep(10);  // Don't burn CPU
+        sleep(1);  // sleep for 10 ticks (approx 1 second)
         continue;
       }
       
       // 1. Process Input
       int n = 0; 
-      
-      int did_update = 0;
-      if(readavail(input_fd) > 0){
+
+      // Drain input queue (up to a limit to prevent livelock)
+      int input_limit = 20; 
+      while(readavail(input_fd) > 0 && input_limit-- > 0){
           n = read(input_fd, &ev, sizeof(ev));
           if(n == sizeof(ev)){
+              did_work = 1;
               if(ev.type == EV_ABS){
                   if(ev.code == ABS_X) mouse_x = (ev.value * SCREEN_W) / 32767;
                   if(ev.code == ABS_Y) mouse_y = (ev.value * SCREEN_H) / 32767;
@@ -571,21 +607,13 @@ main(int argc, char *argv[])
                           Window *hit = find_window_at(mouse_x, mouse_y);
                           if(hit){
                               // Raise window/Focus
-                              Window *old_focus = focus_win;
-                              focus_win = hit;
-                              window_raise(focus_win); // Always bring to front on click
+                              focus_window(hit);
                               
-                              // Mark both old and new focus windows dirty
-                              if(old_focus && old_focus != hit){
-                                  window_mark_dirty(old_focus);
-                              }
-                              window_mark_dirty(hit);
-                              composite_dirty_and_flush();
-                              
-                              if(mouse_y < hit->y + 20){
-                                  drag_win = hit;
-                                  drag_off_x = mouse_x - hit->x;
-                                  drag_off_y = mouse_y - hit->y;
+                              // Start Drag (if on title bar)
+                              if(hit->type == WIN_TYPE_CLIENT && mouse_y < hit->y + TITLE_BAR_HEIGHT) {
+                                drag_win = hit;
+                                drag_off_x = mouse_x - hit->x;
+                                drag_off_y = mouse_y - hit->y;
                               }
                           }
                       } else {
@@ -612,13 +640,11 @@ main(int argc, char *argv[])
                       if(ev.value == 1) capslock_state = !capslock_state;
                   }
                   // Hotkeys
+                  // Hotkeys
                   if(ev.code == KEY_E && ev.value == 1 && ctrl_pressed){
                       // Ctrl+E -> Suspend
-                      int fd = open("/dev/suluctl", O_WRONLY);
-                      if(fd >= 0){
-                          write(fd, "suspend", 7);
-                          close(fd);
-                      }
+                      suspended = 1;
+                      printf("sulu: suspended\n");
                   }
                   // Forward keyboard events to client windows
                   else if(focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm){
@@ -633,12 +659,14 @@ main(int argc, char *argv[])
           }
       }
       
-      if(did_update){
+      if(did_work){
           // Use dirty region compositing instead of full screen
           composite_dirty_and_flush();
       }
       
-      // Avoid busy loop if idle?
-      // Not ideal, but sleep(1) is too slow.
+      // Yield CPU if idle to allow clients to run
+      if(!did_work) {
+          yield();
+      }
   }
 }

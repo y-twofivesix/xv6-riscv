@@ -12,7 +12,7 @@ main()
 {
   if(cpuid() == 0){
       consoleinit();
-      suluctlinit();
+      sulu_dev_init();
       printfinit();
       printf("\n");
       printf("booting kernel.\n");

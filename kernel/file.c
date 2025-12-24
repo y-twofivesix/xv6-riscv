@@ -76,6 +76,9 @@ fileclose(struct file *f)
   if(ff.type == FD_PIPE){
     pipeclose(ff.pipe, ff.writable);
   } else if(ff.type == FD_INODE || ff.type == FD_DEVICE){
+    if(ff.type == FD_DEVICE && ff.major == SULU_DEV) {
+        sulu_dev_close(0, &ff); 
+    }
     begin_op();
     iput(ff.ip);
     end_op();

@@ -103,25 +103,6 @@ sys_kill(void)
   return kill(pid);
 }
 
-uint64
-sys_exists(void)
-{
-  int pid;
-  struct proc *p;
-
-  argint(0, &pid);
-  
-  for(p = proc; p < &proc[NPROC]; p++){
-    acquire(&p->lock);
-    if(p->pid == pid && p->state != UNUSED){
-      release(&p->lock);
-      return 1;
-    }
-    release(&p->lock);
-  }
-  return 0;
-}
-
 // return how many clock tick interrupts have occurred
 // since start.
 uint64
@@ -133,6 +114,13 @@ sys_uptime(void)
   xticks = ticks;
   release(&tickslock);
   return xticks;
+}
+
+uint64
+sys_yield(void)
+{
+  yield();
+  return 0;
 }
 
 uint64

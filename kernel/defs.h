@@ -100,12 +100,11 @@ int             ipc_recv(int*, char*, int);
 // int             gwinwrite(int, uint64, int, int);
 // int             gwinread(int, uint64, int, int);
 
-// suluctl.c
-void            suluctlinit(void);
-int             suluctlread(int, uint64, int, int);
-int             suluctlwrite(int, uint64, int, int);
-int             suluctl_poll(void);  // For Sulu to poll for commands
-int             suluctl_get_request(int*, int*, int*, int*);  // Get pending client request
+// sulu_dev.c
+void            sulu_dev_init(void);
+int             sulu_dev_read(int, uint64, int, int);
+int             sulu_dev_write(int, uint64, int, int);
+int             sulu_dev_close(int, struct file*);
 
 
 void            virtio_gpu_init(void);

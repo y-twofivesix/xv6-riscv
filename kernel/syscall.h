@@ -27,7 +27,5 @@
 #define SYS_shmat  26
 #define SYS_readavail 27
 #define SYS_gpu_flush 28
-#define SYS_suluctl_poll 29
-#define SYS_gpu_flush_rect 30
-#define SYS_suluctl_get_request 31
-#define SYS_exists 32
+#define SYS_gpu_flush_rect 29
+#define SYS_yield 30

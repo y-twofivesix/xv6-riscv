@@ -43,8 +43,6 @@ entry("shmget");
 entry("shmat");
 entry("readavail");
 entry("gpu_flush");
-entry("suluctl_poll");
 entry("gpu_flush_rect");
-entry("suluctl_get_request");
-entry("exists");
+entry("yield");
 

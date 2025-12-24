@@ -31,50 +31,15 @@ int main(int argc, char *argv[])
     exit(1);
   }
   
-  // 3. Tell Sulu about our window
-  int fd = open("/dev/suluctl", O_WRONLY);
+  // 3. Connect to Sulu
+  printf("rect_demo: sending connect request...\n");
+  int fd = sulu_connect(shm_key, width, height);
   if(fd < 0) {
-    printf("rect_demo: failed to open suluctl\n");
+    printf("rect_demo: connection failed\n");
     exit(1);
   }
-  
-  char cmd[64];
-  // Format: "connect <shm_key> <width> <height>"
-  cmd[0] = 'c'; cmd[1] = 'o'; cmd[2] = 'n'; cmd[3] = 'n'; 
-  cmd[4] = 'e'; cmd[5] = 'c'; cmd[6] = 't'; cmd[7] = ' ';
-  
-  // Simple integer to string (shm_key)
-  int n = 8;
-  int k = shm_key;
-  if(k == 0) { cmd[n++] = '0'; } else {
-    char tmp[16]; int i = 0;
-    while(k > 0) { tmp[i++] = '0' + (k % 10); k /= 10; }
-    while(i > 0) cmd[n++] = tmp[--i];
-  }
-  cmd[n++] = ' ';
-  
-  // Width
-  k = width;
-  if(k == 0) { cmd[n++] = '0'; } else {
-    char tmp[16]; int i = 0;
-    while(k > 0) { tmp[i++] = '0' + (k % 10); k /= 10; }
-    while(i > 0) cmd[n++] = tmp[--i];
-  }
-  cmd[n++] = ' ';
-  
-  // Height
-  k = height;
-  if(k == 0) { cmd[n++] = '0'; } else {
-    char tmp[16]; int i = 0;
-    while(k > 0) { tmp[i++] = '0' + (k % 10); k /= 10; }
-    while(i > 0) cmd[n++] = tmp[--i];
-  }
-  
-  write(fd, cmd, n);
-  close(fd);
-  
   printf("rect_demo: sent connect request\n");
-  sleep(5);  // Give Sulu time to create window
+  sleep(1);  // Give Sulu time to create window
   
   // 4. Get pixel buffer
   uint *pixels = sulu_pixels(shm);
@@ -84,7 +49,7 @@ int main(int argc, char *argv[])
   int dx = 2, dy = 2;
   int rect_w = 80, rect_h = 60;
   
-  for(int frame = 0; frame < 200; frame++) {
+  for(int frame = 0; frame < 20000; frame++) {
     // Clear to black
     for(int i = 0; i < width * height; i++)
       pixels[i] = 0xFF000000;
@@ -100,12 +65,13 @@ int main(int argc, char *argv[])
     sulu_blit(shm, 0, 0, width, height);
     
     // Update position
-    x += 2*dx;
-    y += 2*dy;
+    x += dx;
+    y += dy;
     if(x <= 0 || x + rect_w >= width) dx = -dx;
     if(y <= 0 || y + rect_h >= height) dy = -dy;
 
-    sleep(1);
+    // Yield to allow Sulu to composite immediately
+    yield();
   }
   
   // 6. Close window

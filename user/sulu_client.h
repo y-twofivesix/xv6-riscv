@@ -2,16 +2,31 @@
 // Zero-syscall runtime communication using ring buffers
 //
 // Usage:
-//   1. Client calls suluctl to request a window (one syscall)
+//   1. Client calls sulu_connect() -> opens /dev/sulu
 //   2. Client maps the returned SHM region
 //   3. Client writes pixels to buffer, commands to cmd_ring
 //   4. Client reads input events from event_ring
-//   5. Sulu polls cmd_ring in its main loop (no syscalls!)
+//   5. Sulu receives Kernel Event -> Maps Client -> Processes
 
 #ifndef _SULU_CLIENT_H_
 #define _SULU_CLIENT_H_
 
 #include "kernel/types.h"
+#include "kernel/fcntl.h"
+#include "user/user.h"
+
+int
+sulu_connect(int shm_key, int width, int height) {
+    int fd = open("/dev/sulu", O_RDWR);
+    if(fd < 0) return -1;
+    
+    // Send register command [CMD=1, key, w, h]
+    // Packed command due to sulu_dev.c logic
+    int cmd[4] = {1, shm_key, width, height};
+    write(fd, cmd, sizeof(cmd));
+    
+    return fd;
+}
 
 // ============================================================
 // Shared Memory Layout

@@ -10,7 +10,7 @@ OBJS = \
   $K/kalloc.o \
   $K/spinlock.o \
   $K/string.o \
-  $K/suluctl.o \
+  $K/sulu_dev.o \
   $K/virtio_gpu.o \
   $K/virtio_input.o \
   $K/main.o \
@@ -21,7 +21,6 @@ OBJS = \
   $K/trap.o \
   $K/syscall.o \
   $K/sysproc.o \
-  $K/syssuluctl.o \
   $K/bio.o \
   $K/fs.o \
   $K/log.o \
