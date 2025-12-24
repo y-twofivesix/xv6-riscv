@@ -185,6 +185,37 @@ void composite_region(Rect *r) {
                                     }
                                 }
                             }
+                            
+                            // w:N p:N on right side (format: "w:XXX p:XXX")
+                            char info[16];
+                            int n = 0;
+                            info[n++] = 'w'; info[n++] = ':';
+                            int wid = w->id;
+                            if(wid >= 100) info[n++] = '0' + (wid / 100) % 10;
+                            if(wid >= 10) info[n++] = '0' + (wid / 10) % 10;
+                            info[n++] = '0' + wid % 10;
+                            info[n++] = ' '; info[n++] = 'p'; info[n++] = ':';
+                            int pid = w->client_pid;
+                            if(pid >= 100) info[n++] = '0' + (pid / 100) % 10;
+                            if(pid >= 10) info[n++] = '0' + (pid / 10) % 10;
+                            info[n++] = '0' + pid % 10;
+                            info[n] = 0;
+                            
+                            int info_x = w->w - (n * 8) - 6;  // Right-align with padding
+                            int info_char_idx = buf_x - info_x;
+                            if(info_char_idx >= 0 && info_char_idx < n * 8) {
+                                int char_num = info_char_idx / 8;
+                                int pixel_col = info_char_idx % 8;
+                                if(char_num < n) {
+                                    int glyph_idx = info[char_num] - 32;
+                                    if(glyph_idx >= 0 && glyph_idx < 96) {
+                                        if(font_8x8[glyph_idx][font_row] & (0x80 >> pixel_col)) {
+                                            fb[y * SCREEN_W + x] = text_color;
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
                         }
                         fb[y * SCREEN_W + x] = bar_color;
                     } else {
@@ -485,6 +516,14 @@ main(int argc, char *argv[])
   // Initial full screen composite and flush
   composite();
   gpu_flush();
+  
+  // Auto-start initial terminal
+  if(fork() == 0) {
+    char *argv_term[] = { "terminal", 0 };
+    exec("/bin/terminal", argv_term);
+    printf("sulu: failed to start terminal\n");
+    exit(1);
+  }
   
   struct input_event ev;
   // Define message struct locally or via header? 

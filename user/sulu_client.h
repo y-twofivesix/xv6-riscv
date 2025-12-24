@@ -374,6 +374,77 @@ static inline void sulu_draw_rect(struct sulu_window_shm *shm, int x, int y, int
     }
 }
 
+// Draw a circle outline (cx, cy = center, r = radius)
+static inline void sulu_draw_circle(struct sulu_window_shm *shm, int cx, int cy, int r, uint color) {
+    uint *pixels = sulu_pixels(shm);
+    int stride = shm->width;
+    int win_w = shm->width;
+    int win_h = shm->height;
+
+    int x = r;
+    int y = 0;
+    int err = 0;
+
+    while (x >= y) {
+        int dx[8] = {x, x, -x, -x, y, y, -y, -y};
+        int dy[8] = {y, -y, y, -y, x, -x, x, -x};
+        for (int i = 0; i < 8; i++) {
+            int px = cx + dx[i];
+            int py = cy + dy[i];
+            if (px >= 0 && px < win_w && py >= 0 && py < win_h)
+                pixels[py * stride + px] = color;
+        }
+
+        if (err <= 0) {
+            y += 1;
+            err += 2 * y + 1;
+        }
+        if (err > 0) {
+            x -= 1;
+            err -= 2 * x + 1;
+        }
+    }
+}
+
+// Fill a circle (cx, cy = center, r = radius)
+static inline void sulu_fill_circle(struct sulu_window_shm *shm, int cx, int cy, int r, uint color) {
+    uint *pixels = sulu_pixels(shm);
+    int stride = shm->width;
+    int win_w = shm->width;
+    int win_h = shm->height;
+
+    int x = r;
+    int y = 0;
+    int err = 0;
+
+    while (x >= y) {
+        // Draw horizontal lines to fill the circle
+        int rows[4] = {cy + y, cy - y, cy + x, cy - x};
+        int half_widths[4] = {x, x, y, y};
+        
+        for (int i = 0; i < 4; i++) {
+            int py = rows[i];
+            if (py < 0 || py >= win_h) continue;
+            int x1 = cx - half_widths[i];
+            int x2 = cx + half_widths[i];
+            if (x1 < 0) x1 = 0;
+            if (x2 >= win_w) x2 = win_w - 1;
+            for (int px = x1; px <= x2; px++) {
+                pixels[py * stride + px] = color;
+            }
+        }
+
+        if (err <= 0) {
+            y += 1;
+            err += 2 * y + 1;
+        }
+        if (err > 0) {
+            x -= 1;
+            err -= 2 * x + 1;
+        }
+    }
+}
+
 // ============================================================
 // Text Rendering (using 8x8 bitmap font)
 // ============================================================

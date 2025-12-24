@@ -27,12 +27,11 @@ int main(int argc, char*argv[])
   sleep(1);  // Give Sulu time to create window
   
   // 3. Use win.pixels directly from the struct
-  uint *pixels = win.pixels;
   
   // 5. Animation loop
-  int x = 50, y = 50;
+  int x = 120, y = 50;
   int dx = 2, dy = 2;
-  int rect_w = 80, rect_h = 60;
+  int radius = 40;
   
   for(int frame = 0; frame < 20000; frame++) {
     // Resize every 15000 frames to test
@@ -47,30 +46,24 @@ int main(int argc, char*argv[])
         printf("rect_demo: resize failed!\n");
         break;
       }
-      // Re-fetch pixels after resize (though win.pixels is updated)
-      pixels = win.pixels;
     }
 
     // Clear to black
-    for(int i = 0; i < width * height; i++)
-      pixels[i] = 0xFF000000;
+    sulu_clear(win.shm, 0xFF000000);
     
-    // Draw red rectangle
-    for(int py = y; py < y + rect_h && py < height; py++) {
-      for(int px = x; px < x + rect_w && px < width; px++) {
-        pixels[py * width + px] = 0xFFFF0000;  // Red
-      }
-    }
+    // Draw red circle using new API
+    sulu_fill_circle(win.shm, x, y, radius, 0xFFFF0000);  // Red
     
     // Swap buffers (Double Buffering)
     sulu_swap(&win);
-    pixels = win.pixels; // Point to the NEW back buffer for next frame
     
     // Update position
     x += dx;
     y += dy;
-    if(x <= 0 || x + rect_w >= width) dx = -dx;
-    if(y <= 0 || y + rect_h >= height) dy = -dy;
+    if(x - radius <= 0 || x + radius >= width) dx = -dx;
+    if(y - radius <= 0 || y + radius >= height) dy = -dy;
+
+    sleep(1);
 
     // Yield to allow Sulu to composite immediately
     yield();
