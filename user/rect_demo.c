@@ -24,6 +24,7 @@ int main(int argc, char*argv[])
   // 2. Set window title and cursor
   sulu_set_title(win.shm, "Bouncing Box Demo");
   win.shm->cursor_type = SULU_CURSOR_ARROW;
+  win.shm->bgcolor = 0xFF0000FF;
   
   sleep(10);  // Give Sulu time to create window
   
@@ -59,8 +60,8 @@ int main(int argc, char*argv[])
       }
     }
 
-    // Clear to black
-    sulu_clear(win.shm, 0xFF000000);
+    // Clear to background color
+    sulu_clear(win.shm, win.shm->bgcolor);
     
     // Draw red circle using new API
     sulu_fill_circle(win.shm, x, y, radius, 0xFFFF0000);  // Red

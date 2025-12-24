@@ -19,6 +19,10 @@
 #define CLOSE_BTN_NORMAL (uint)0xFF8B0000
 #define CLOSE_BTN_HOVER (uint)0xFFFF0000
 
+#define ENABLE_SHADOWS 1
+#define SHADOW_OFFSET 6
+#define SHADOW_COLOR (uint)0xFF04081F  // Deep darkened color
+
 // Input Event Codes
 #define EV_ABS 0x03
 #define EV_KEY 0x01
@@ -180,21 +184,44 @@ void composite_region(Rect *r) {
     Window *w = windows;
     while (w) {
         // Check if window intersects region
-        if (!(w->x + w->w <= rx || rx2 <= w->x ||
-              w->y + w->h <= ry || ry2 <= w->y)) {
-            // Draw overlapping portion
-            int wx1 = (rx > w->x) ? rx : w->x;
-            int wy1 = (ry > w->y) ? ry : w->y;
-            int wx2 = (rx2 < w->x + w->w) ? rx2 : w->x + w->w;
-            int wy2 = (ry2 < w->y + w->h) ? ry2 : w->y + w->h;
-        
-            // Client window: TITLE_BAR_HEIGHT + client buffer
-            for (int y = wy1; y < wy2; y++) {
-                for (int x = wx1; x < wx2; x++) {
-                    int buf_x = x - w->x;
-                    int buf_y = y - w->y;
-                    
-                    if(buf_y < TITLE_BAR_HEIGHT) {
+            if (!(w->x + w->w + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0) <= rx || rx2 <= w->x ||
+                  w->y + w->h + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0) <= ry || ry2 <= w->y)) {
+                // Draw overlapped portion (including shadow)
+                int wx1 = (rx > w->x) ? rx : w->x;
+                int wy1 = (ry > w->y) ? ry : w->y;
+                int wx2 = (rx2 < w->x + w->w + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0)) ? rx2 : w->x + w->w + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0);
+                int wy2 = (ry2 < w->y + w->h + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0)) ? ry2 : w->y + w->h + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0);
+            
+                // Render shadow first
+#if ENABLE_SHADOWS
+                for (int y = wy1; y < wy2; y++) {
+                    for (int x = wx1; x < wx2; x++) {
+                        int buf_x = x - w->x;
+                        int buf_y = y - w->y;
+                        
+                        // Is this pixel in the shadow area (but not the window itself)?
+                        if (buf_x >= SHADOW_OFFSET && buf_x < w->w + SHADOW_OFFSET &&
+                            buf_y >= SHADOW_OFFSET && buf_y < w->h + SHADOW_OFFSET) {
+                            // Only draw shadow if not already covered by this window
+                            if (buf_x < SHADOW_OFFSET || buf_x >= w->w ||
+                                buf_y < SHADOW_OFFSET || buf_y >= w->h) {
+                                fb[y * SCREEN_W + x] = SHADOW_COLOR;
+                            }
+                        }
+                    }
+                }
+#endif
+
+                // Client window: TITLE_BAR_HEIGHT + client buffer
+                for (int y = wy1; y < wy2; y++) {
+                    for (int x = wx1; x < wx2; x++) {
+                        int buf_x = x - w->x;
+                        int buf_y = y - w->y;
+                        
+                        if (buf_x < 0 || buf_x >= w->w || buf_y < 0 || buf_y >= w->h)
+                            continue;
+                        
+                        if(buf_y < TITLE_BAR_HEIGHT) {
                         // Title bar background
                         uint bar_color = (w == focus_win) ? FOCUS_COLOR : UNFOCUS_COLOR;
                         uint text_color = (w == focus_win) ? 0xFF000000 : 0xFFFFFFFF;
@@ -378,7 +405,8 @@ void cursor_move(int new_x, int new_y) {
 // Mark a window's bounds as dirty
 void window_mark_dirty(Window *w) {
     if (!w) return;
-    mark_dirty(w->x, w->y, w->w, w->h);
+    int extra = ENABLE_SHADOWS ? SHADOW_OFFSET : 0;
+    mark_dirty(w->x, w->y, w->w + extra, w->h + extra);
 }
 
 // Close and free a window
@@ -386,7 +414,8 @@ void close_window(Window *w) {
     if(!w) return;
 
     // 1. Mark dirty (so area gets redrawn)
-    mark_dirty(w->x, w->y, w->w, w->h);
+    int extra = ENABLE_SHADOWS ? SHADOW_OFFSET : 0;
+    mark_dirty(w->x, w->y, w->w + extra, w->h + extra);
 
     // 2. Unlink from list
     if(windows == w) {

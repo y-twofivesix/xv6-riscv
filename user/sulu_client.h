@@ -327,6 +327,11 @@ static inline void sulu_set_title(struct sulu_window_shm *shm, const char *title
     shm->title[i] = '\0';
 }
 
+// Set the window background color
+static inline void sulu_set_bgcolor(struct sulu_window_shm *shm, uint color) {
+    if (shm) shm->bgcolor = color;
+}
+
 // ============================================================
 // Drawing Helpers
 // ============================================================
