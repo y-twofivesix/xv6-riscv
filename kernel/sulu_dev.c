@@ -80,13 +80,8 @@ sulu_dev_write(int user_dst, uint64 dst, int n, int off)
         int extended_cmd[4];
         if(n >= sizeof(extended_cmd)) {
              if(copyin(p->pagetable, (char*)extended_cmd, dst, sizeof(extended_cmd)) < 0) return -1;
-             sulu_queue_event(SULU_EVENT_CONNECT, p->pid, extended_cmd[1], extended_cmd[2]);
-             // Wait, where is height? extended_cmd[3]
-             // Our queue struct only has val1/val2. Let's pack width/height or use 2 events.
-             // For simplicity, let's just make the event struct bigger? 
-             // Or pack width/height into val2 (16-bit each).
              
-             // Packing: val2 = (width << 16) | height
+             // Pack width/height into val2: (width << 16) | height
              int w = extended_cmd[2];
              int h = extended_cmd[3];
              sulu_queue_event(SULU_EVENT_CONNECT, p->pid, extended_cmd[1], (w << 16) | h);

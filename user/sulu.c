@@ -62,6 +62,7 @@ typedef struct Window {
   
   int type;                       // Always WIN_TYPE_CLIENT
   int client_pid;                 // PID of client process
+  int shmid;                      // Shared memory ID
   struct sulu_window_shm *shm;    // Shared memory header
 } Window;
 
@@ -79,6 +80,8 @@ Window *focus_win = 0;
 // Rate limiting for high-frequency updates (drag, animations)
 static int frame_counter = 0;
 #define FRAME_RATE_LIMIT 1  // flush every Nth event
+#define INPUT_DRAIN_LIMIT 20 // Max input events to process per loop
+#define CLIENT_CMD_LIMIT  1 // Max client commands to process per loop per window
 
 // ============================================================================
 // Z-Index Based Compositing System
@@ -262,7 +265,7 @@ void close_window(Window *w) {
     }
 
     // 4. Cleanup
-    // if(w->shm) shmdt(w->shm); // TODO: Implement shmdt in kernel
+    if(w->shm) sulu_detach(w->shmid, w->shm); 
     free(w);
 }
 
@@ -270,6 +273,8 @@ void close_window(Window *w) {
 Window*
 spawn_client_window(int client_pid, int shm_key, int width, int height)
 {
+  printf("sulu: SPAWN pid=%d key=%d w=%d h=%d\n", client_pid, shm_key, width, height);
+  
   // Map the client's shared memory
   int shmid = shmget(shm_key, 0);  // Use existing
   if(shmid < 0) {
@@ -278,6 +283,7 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
   }
   
   struct sulu_window_shm *shm = (struct sulu_window_shm*)shmat(shmid, 0);
+  printf("sulu: shmat returned %p for shmid=%d\n", shm, shmid);
   if(shm == (void*)-1) {
     printf("sulu: failed to attach client shm\n");
     return 0;
@@ -296,7 +302,11 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
   win->next = 0;
   win->type = WIN_TYPE_CLIENT;
   win->client_pid = client_pid;
+  win->shmid = shmid;
   win->shm = shm;
+  
+  printf("sulu: window id=%d shm=%p buf=%p heap=%p\n", 
+         win->id, shm, win->buf, sbrk(0));
   
   // Initialize the SHM header
   shm->win_id = win->id;
@@ -513,10 +523,13 @@ main(int argc, char *argv[])
             
             // Note: sys_exists check REMOVED (kernel notifies us via DISCONNECT event)
 
+            // DEBUG: Print before accessing SHM (disabled - too noisy)
+            // printf("sulu: win=%d shm=%p\n", w->id, w->shm);
+            
             struct sulu_ring *r = &w->shm->cmd_ring;
             int closed = 0;
             int cmds_processed = 0;
-            while(r->head != r->tail && cmds_processed++ < 10) {
+            while(r->head != r->tail && cmds_processed++ < CLIENT_CMD_LIMIT) {
               did_work = 1;
               struct sulu_cmd *cmd = &w->shm->cmd_buf[r->tail];
               if(cmd->type == SULU_CMD_BLIT) {
@@ -563,7 +576,7 @@ main(int argc, char *argv[])
       int n = 0; 
 
       // Drain input queue (up to a limit to prevent livelock)
-      int input_limit = 20; 
+      int input_limit = INPUT_DRAIN_LIMIT; 
       while(readavail(input_fd) > 0 && input_limit-- > 0){
           n = read(input_fd, &ev, sizeof(ev));
           if(n == sizeof(ev)){

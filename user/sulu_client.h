@@ -150,6 +150,11 @@ static inline void sulu_close(struct sulu_window_shm *shm) {
     sulu_cmd_push(shm, &cmd);
 }
 
+// Convenience: Detach shared memory
+static inline void sulu_detach(int shmid, void *shm) {
+    shmdt(shmid, shm);
+}
+
 // Convenience: Fill a rectangle with color
 static inline void sulu_fill(struct sulu_window_shm *shm, int x1, int y1, int x2, int y2, uint color) {
     uint *pixels = sulu_pixels(shm);

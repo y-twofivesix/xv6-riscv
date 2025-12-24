@@ -29,3 +29,4 @@
 #define SYS_gpu_flush 28
 #define SYS_gpu_flush_rect 29
 #define SYS_yield 30
+#define SYS_shmdt 31

@@ -110,6 +110,7 @@ extern uint64 sys_shmat(void);
 extern uint64 sys_readavail(void);
 extern uint64 sys_gpu_flush(void);
 extern uint64 sys_gpu_flush_rect(void);
+extern uint64 sys_shmdt(void);
 extern uint64 sys_yield(void);
 
 // An array mapping syscall numbers from syscall.h
@@ -145,6 +146,7 @@ static uint64 (*syscalls[])(void) = {
 [SYS_gpu_flush] sys_gpu_flush,
 [SYS_gpu_flush_rect] sys_gpu_flush_rect,
 [SYS_yield]   sys_yield,
+[SYS_shmdt]   sys_shmdt,
 };
 
 void

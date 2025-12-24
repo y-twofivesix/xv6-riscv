@@ -30,6 +30,8 @@ int main(int argc, char *argv[])
     printf("rect_demo: shmat failed\n");
     exit(1);
   }
+  printf("rect_demo: attached shm at %p, shmid %d\n", shm, shmid);
+  printf("rect_demo: heap top: %p\n", sbrk(0));
   
   // 3. Connect to Sulu
   printf("rect_demo: sending connect request...\n");
@@ -76,7 +78,13 @@ int main(int argc, char *argv[])
   
   // 6. Close window
   sleep(5);
+  printf("rect_demo: closing window...\n");
   sulu_close(shm);
+  
+  // Note: We don't call sulu_detach here - Sulu will clean up the SHM
+  // when it processes our SULU_CMD_CLOSE. Calling shmdt() here would
+  // race with Sulu still reading from the SHM buffer.
+  sleep(1);  // Give Sulu time to process close
   
   printf("rect_demo: done\n");
   exit(0);

@@ -21,6 +21,7 @@ struct {
   uint size[MAX_SHM];                   // Size in bytes
   int keys[MAX_SHM];
   int used[MAX_SHM];
+  int refcount[MAX_SHM];
   int is_static[MAX_SHM];               // 1 = static kernel memory (no kref/kfree)
 } shm_table;
 
@@ -245,6 +246,7 @@ sys_shmget(void)
        shm_table.size[i] = segment_size;
        shm_table.keys[i] = key;
        shm_table.used[i] = 1;
+       shm_table.refcount[i] = 0; // Initialize refcount
        
        release(&shm_table.lock);
        return i;
@@ -318,11 +320,72 @@ sys_shmat(void)
       }
   }
   
-  // Update process size if we grew it (simple sbrk-like behavior)
-  if(addr + seg_size > p->sz){
-    p->sz = addr + seg_size;
+  // Update process size if we grew it
+  // IMPORTANT: Use page-aligned size, not content size!
+  // Otherwise sbrk() may allocate heap memory that overlaps with SHM page slack.
+  uint64 shm_end = addr + npages * PGSIZE;
+  if(shm_end > p->sz){
+    p->sz = shm_end;
   }
+  
+  shm_table.refcount[shmid]++; // Attached
   
   release(&shm_table.lock);
   return addr;
+}
+
+uint64
+sys_shmdt(void)
+{
+  int shmid; 
+  uint64 addr;
+  
+  argint(0, &shmid);
+  argaddr(1, &addr);
+  
+  if(shmid < 0 || shmid >= MAX_SHM){
+      return -1;
+  }
+  
+  acquire(&shm_table.lock);
+  
+  if(!shm_table.used[shmid]){
+      release(&shm_table.lock);
+      return -1;
+  }
+  
+  // Unmap from user page table
+  struct proc *p = myproc();
+  int npages = shm_table.npages[shmid];
+  
+  // Unmap ONLY if addr is valid
+  if(addr > 0 && addr < MAXVA) {
+      // uvmunmap requires page aligned. 0 => do not free physical pages.
+      uvmunmap(p->pagetable, addr, npages, 0); 
+  }
+  
+  // Decrement refcount
+  if(shm_table.refcount[shmid] > 0)
+      shm_table.refcount[shmid]--;
+      
+  // Decrement page refcount for each page (mirrors kref in shmat)
+  // kfree decrements refcount; only actually frees when refcount hits 0
+  if(!shm_table.is_static[shmid]){
+      for(int i = 0; i < npages; i++){
+          if(shm_table.pages[shmid][i])
+              kfree(shm_table.pages[shmid][i]);
+      }
+  }
+  
+  // Clean up segment metadata only when no more attachments
+  if(shm_table.refcount[shmid] == 0 && !shm_table.is_static[shmid]){
+      for(int i = 0; i < npages; i++){
+          shm_table.pages[shmid][i] = 0;
+      }
+      shm_table.used[shmid] = 0;
+      shm_table.keys[shmid] = 0;
+  }
+  
+  release(&shm_table.lock);
+  return 0;
 }

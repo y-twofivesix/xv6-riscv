@@ -462,8 +462,10 @@ main(int argc, char *argv[])
       }
     }
     
-    sleep(1);  // Small sleep to avoid busy loop
+    yield();  // Yield to allow Sulu/Shell to run
   }
   
+  sulu_close(shm);
+  sulu_detach(shmid, shm);
   return 0;
 }
