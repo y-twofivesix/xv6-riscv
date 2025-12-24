@@ -6,45 +6,28 @@
 #include "kernel/fcntl.h"
 #include "user/sulu_client.h"
 
-int main(int argc, char *argv[])
+int main(int argc, char*argv[])
 {
   printf("rect_demo: starting...\n");
   
-  // 1. Allocate shared memory for our window
-  // Now supports multi-page SHM (up to 64KB = 16 pages)
-  // 120x120 pixels = 57,600 bytes + 1000 header = ~58KB = 15 pages
+  // 1. Initialize window using all-in-one helper
   int width = 480;
   int height = 480;
-  int shm_size = sulu_shm_size(width, height);  // Helper calculates: header + pixels
-  int shm_key = getpid();  // Use our PID as unique key
+  struct sulu_window win;
   
-  int shmid = shmget(shm_key, shm_size);
-  if(shmid < 0) {
-    printf("rect_demo: shmget failed\n");
+  if(sulu_init(&win, width, height) < 0) {
+    printf("rect_demo: sulu_init failed\n");
     exit(1);
   }
+  printf("rect_demo: window created at %p\n", win.shm);
   
-  // 2. Map the shared memory
-  struct sulu_window_shm *shm = (struct sulu_window_shm*)shmat(shmid, 0);
-  if(shm == (void*)-1) {
-    printf("rect_demo: shmat failed\n");
-    exit(1);
-  }
-  printf("rect_demo: attached shm at %p, shmid %d\n", shm, shmid);
-  printf("rect_demo: heap top: %p\n", sbrk(0));
+  // 2. Set window title
+  sulu_set_title(win.shm, "Bouncing Box Demo");
   
-  // 3. Connect to Sulu
-  printf("rect_demo: sending connect request...\n");
-  int fd = sulu_connect(shm_key, width, height);
-  if(fd < 0) {
-    printf("rect_demo: connection failed\n");
-    exit(1);
-  }
-  printf("rect_demo: sent connect request\n");
   sleep(1);  // Give Sulu time to create window
   
-  // 4. Get pixel buffer
-  uint *pixels = sulu_pixels(shm);
+  // 3. Use win.pixels directly from the struct
+  uint *pixels = win.pixels;
   
   // 5. Animation loop
   int x = 50, y = 50;
@@ -64,7 +47,7 @@ int main(int argc, char *argv[])
     }
     
     // Send BLIT command
-    sulu_blit(shm, 0, 0, width, height);
+    sulu_blit(win.shm, 0, 0, width, height);
     
     // Update position
     x += dx;
@@ -79,7 +62,7 @@ int main(int argc, char *argv[])
   // 6. Close window
   sleep(5);
   printf("rect_demo: closing window...\n");
-  sulu_close(shm);
+  sulu_close(win.shm);
   
   // Note: We don't call sulu_detach here - Sulu will clean up the SHM
   // when it processes our SULU_CMD_CLOSE. Calling shmdt() here would

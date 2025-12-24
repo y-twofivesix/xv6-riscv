@@ -162,9 +162,31 @@ void composite_region(Rect *r) {
                     int buf_y = y - w->y;
                     
                     if(buf_y < TITLE_BAR_HEIGHT) {
-                        // Title bar
-                        uint color = (w == focus_win) ? FOCUS_COLOR : UNFOCUS_COLOR;
-                        fb[y * SCREEN_W + x] = color;
+                        // Title bar background
+                        uint bar_color = (w == focus_win) ? FOCUS_COLOR : UNFOCUS_COLOR;
+                        uint text_color = (w == focus_win) ? 0xFF000000 : 0xFFFFFFFF;
+                        
+                        // Check if this pixel is part of title text
+                        int text_y = (TITLE_BAR_HEIGHT - 8) / 2;  // Center 8px font in title bar
+                        if(buf_y >= text_y && buf_y < text_y + 8 && w->shm && w->shm->title[0]) {
+                            int font_row = buf_y - text_y;
+                            int text_x = 6;  // Left padding
+                            int char_idx = buf_x - text_x;
+                            if(char_idx >= 0) {
+                                int char_num = char_idx / 8;
+                                int pixel_col = char_idx % 8;
+                                if(char_num < 60 && w->shm->title[char_num]) {
+                                    int glyph_idx = w->shm->title[char_num] - 32;
+                                    if(glyph_idx >= 0 && glyph_idx < 96) {
+                                        if(font_8x8[glyph_idx][font_row] & (0x80 >> pixel_col)) {
+                                            fb[y * SCREEN_W + x] = text_color;
+                                            continue;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        fb[y * SCREEN_W + x] = bar_color;
                     } else {
                         // Client pixel buffer (offset by title bar)
                         int client_y = buf_y - TITLE_BAR_HEIGHT;

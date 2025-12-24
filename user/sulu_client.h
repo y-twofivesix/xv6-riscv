@@ -14,6 +14,7 @@
 #include "kernel/types.h"
 #include "kernel/fcntl.h"
 #include "user/user.h"
+#include "user/font.h"
 
 int
 sulu_connect(int shm_key, int width, int height) {
@@ -87,6 +88,7 @@ struct sulu_window_shm {
     int height;
     int flags;              // SULU_FLAG_*
     uint bgcolor;           // Window background color (ARGB)
+    char title[64];         // Window title (null-terminated)
     
     // Command ring (client -> sulu)
     struct sulu_ring cmd_ring;
@@ -117,6 +119,181 @@ static inline uint* sulu_pixels(struct sulu_window_shm *shm) {
 // Size = header struct + (width * height * 4 bytes per pixel)
 static inline int sulu_shm_size(int width, int height) {
     return sizeof(struct sulu_window_shm) + (width * height * 4);
+}
+
+// Create and attach SHM for a window. Returns pointer to SHM struct, or 0 on failure.
+// Also stores the shmid in *out_shmid for later cleanup with sulu_detach().
+static inline struct sulu_window_shm* sulu_attach(int shm_key, int width, int height, int *out_shmid) {
+    int size = sulu_shm_size(width, height);
+    int shmid = shmget(shm_key, size);
+    if (shmid < 0) return 0;
+    
+    struct sulu_window_shm *shm = (struct sulu_window_shm*)shmat(shmid, 0);
+    if (shm == (void*)-1) return 0;
+    
+    if (out_shmid) *out_shmid = shmid;
+    return shm;
+}
+
+// ============================================================
+// All-in-One Window Creation
+// ============================================================
+
+// Handle returned by sulu_init() for convenient window management
+struct sulu_window {
+    struct sulu_window_shm *shm;    // SHM pointer
+    uint *pixels;                    // Pixel buffer
+    int shmid;                       // SHM ID for cleanup
+    int fd;                          // File descriptor from sulu_connect
+    int width;                       // Window width
+    int height;                      // Window height
+};
+
+// All-in-one window creation: attach SHM + connect to Sulu
+// Returns 0 on success, -1 on failure
+// Usage: struct sulu_window win; if(sulu_init(&win, 640, 480) == 0) { ... }
+static inline int sulu_init(struct sulu_window *win, int width, int height) {
+    int shm_key = getpid();  // Use PID as unique key
+    
+    win->shm = sulu_attach(shm_key, width, height, &win->shmid);
+    if (!win->shm) return -1;
+    
+    win->fd = sulu_connect(shm_key, width, height);
+    if (win->fd < 0) return -1;
+    
+    win->pixels = sulu_pixels(win->shm);
+    win->width = width;
+    win->height = height;
+    
+    // Store dimensions in SHM for Sulu
+    win->shm->width = width;
+    win->shm->height = height;
+    
+    return 0;
+}
+
+// Set the window title (max 63 chars)
+static inline void sulu_set_title(struct sulu_window_shm *shm, const char *title) {
+    int i;
+    for (i = 0; i < 63 && title[i]; i++) {
+        shm->title[i] = title[i];
+    }
+    shm->title[i] = '\0';
+}
+
+// ============================================================
+// Drawing Helpers
+// ============================================================
+
+// Clear entire window to a single color
+static inline void sulu_clear(struct sulu_window_shm *shm, uint color) {
+    uint *pixels = sulu_pixels(shm);
+    int total = shm->width * shm->height;
+    for (int i = 0; i < total; i++) {
+        pixels[i] = color;
+    }
+}
+
+// Fill a rectangle with a color (x, y, w, h format)
+static inline void sulu_fill_rect(struct sulu_window_shm *shm, int x, int y, int w, int h, uint color) {
+    uint *pixels = sulu_pixels(shm);
+    int stride = shm->width;
+    int win_w = shm->width;
+    int win_h = shm->height;
+    
+    // Clamp to window bounds
+    if (x < 0) { w += x; x = 0; }
+    if (y < 0) { h += y; y = 0; }
+    if (x + w > win_w) w = win_w - x;
+    if (y + h > win_h) h = win_h - y;
+    if (w <= 0 || h <= 0) return;
+    
+    for (int py = y; py < y + h; py++) {
+        for (int px = x; px < x + w; px++) {
+            pixels[py * stride + px] = color;
+        }
+    }
+}
+
+// Draw a rectangle outline (1px border)
+static inline void sulu_draw_rect(struct sulu_window_shm *shm, int x, int y, int w, int h, uint color) {
+    uint *pixels = sulu_pixels(shm);
+    int stride = shm->width;
+    int win_w = shm->width;
+    int win_h = shm->height;
+    
+    // Draw top and bottom edges
+    for (int px = x; px < x + w && px < win_w; px++) {
+        if (px >= 0) {
+            if (y >= 0 && y < win_h) pixels[y * stride + px] = color;
+            if (y + h - 1 >= 0 && y + h - 1 < win_h) pixels[(y + h - 1) * stride + px] = color;
+        }
+    }
+    
+    // Draw left and right edges
+    for (int py = y; py < y + h && py < win_h; py++) {
+        if (py >= 0) {
+            if (x >= 0 && x < win_w) pixels[py * stride + x] = color;
+            if (x + w - 1 >= 0 && x + w - 1 < win_w) pixels[py * stride + (x + w - 1)] = color;
+        }
+    }
+}
+
+// ============================================================
+// Text Rendering (using 8x8 bitmap font)
+// ============================================================
+
+#define SULU_FONT_WIDTH 8
+#define SULU_FONT_HEIGHT 8
+
+// Draw a single character at pixel position (x, y)
+// Returns the width of the character (8 pixels)
+static inline int sulu_draw_char(struct sulu_window_shm *shm, int x, int y, char ch, uint color) {
+    uint *pixels = sulu_pixels(shm);
+    int stride = shm->width;
+    int win_w = shm->width;
+    int win_h = shm->height;
+    
+    // Map ASCII to font index (font starts at space = 32)
+    int idx = ch - 32;
+    if (idx < 0 || idx >= 96) idx = 0;  // Default to space for invalid
+    
+    unsigned char *glyph = font_8x8[idx];
+    
+    for (int row = 0; row < 8; row++) {
+        int py = y + row;
+        if (py < 0 || py >= win_h) continue;
+        
+        unsigned char bits = glyph[row];
+        for (int col = 0; col < 8; col++) {
+            int px = x + col;
+            if (px < 0 || px >= win_w) continue;
+            
+            // Check if pixel is set (MSB first)
+            if (bits & (0x80 >> col)) {
+                pixels[py * stride + px] = color;
+            }
+        }
+    }
+    
+    return SULU_FONT_WIDTH;
+}
+
+// Draw a text string at pixel position (x, y)
+// Returns the total width drawn
+static inline int sulu_draw_text(struct sulu_window_shm *shm, int x, int y, const char *str, uint color) {
+    int start_x = x;
+    while (*str) {
+        if (*str == '\n') {
+            x = start_x;
+            y += SULU_FONT_HEIGHT;
+        } else {
+            sulu_draw_char(shm, x, y, *str, color);
+            x += SULU_FONT_WIDTH;
+        }
+        str++;
+    }
+    return x - start_x;
 }
 
 // ============================================================

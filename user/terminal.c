@@ -256,21 +256,12 @@ int
 main(int argc, char *argv[])
 {
   int my_pid = getpid();
+  int shmid;
   
-  // Calculate total SHM size needed using helper
-  int total_size = sulu_shm_size(WIN_WIDTH, WIN_HEIGHT);
-  
-  // 1. Create shared memory using our PID as key
-  int shmid = shmget(my_pid, total_size);
-  if (shmid < 0) {
-    printf("terminal: shmget failed\n");
-    exit(1);
-  }
-  
-  // 2. Attach shared memory
-  shm = (struct sulu_window_shm*)shmat(shmid, 0);
-  if (shm == (void*)-1) {
-    printf("terminal: shmat failed\n");
+  // 1. Create and attach SHM using helper
+  shm = sulu_attach(my_pid, WIN_WIDTH, WIN_HEIGHT, &shmid);
+  if (!shm) {
+    printf("terminal: sulu_attach failed\n");
     exit(1);
   }
   
@@ -332,6 +323,9 @@ main(int argc, char *argv[])
     printf("terminal: sulu_connect failed\n");
     exit(1);
   }
+  
+  // Set window title
+  sulu_set_title(shm, "Terminal");
   
   sleep(5);  // Give Sulu time to create window
   
