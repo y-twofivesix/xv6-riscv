@@ -16,6 +16,11 @@
 #include "user/user.h"
 #include "user/font.h"
 
+// Screen configuration
+#define SULU_SCREEN_W 1280
+#define SULU_SCREEN_H 800
+#define SULU_TITLE_BAR_HEIGHT 20
+
 int
 sulu_connect(int shm_key, int width, int height) {
     int fd = open("/dev/sulu", O_RDWR);
@@ -69,6 +74,7 @@ sulu_connect(int shm_key, int width, int height) {
 #define SULU_CURSOR_NONE     255
 #define SULU_EV_FOCUS        4   // Window focus gained/lost
 #define SULU_EV_CLOSE        5   // User clicked close button
+#define SULU_EV_MAXIMIZE     6   // User clicked maximize button
 
 // Command structure (client writes these)
 struct sulu_cmd {
@@ -236,24 +242,26 @@ struct sulu_window {
 
 // All-in-one window creation: attach SHM + connect to Sulu
 // Returns 0 on success, -1 on failure
-static inline int sulu_init(struct sulu_window *win, int width, int height, int flags) {
+static inline int sulu_init(struct sulu_window *win, int width, int height, uint bgcolor, int flags) {
     int shm_key = getpid();  // Use PID as unique key
     
     win->shm = sulu_attach(shm_key, width, height, flags, &win->shmid);
     if (!win->shm) return -1;
     
-    win->fd = sulu_connect(shm_key, width, height);
-    if (win->fd < 0) return -1;
-    
     win->pixels = sulu_pixels(win->shm);
     win->width = width;
     win->height = height;
     
-    // Store dimensions in SHM for Sulu
+    // Store dimensions and properties in SHM for Sulu
     win->shm->width = width;
     win->shm->height = height;
+    win->shm->bgcolor = bgcolor;
     win->shm->flags = flags;
     win->shm->front_buf = 0;
+    
+    // Connect ONLY after metadata is set
+    win->fd = sulu_connect(shm_key, width, height);
+    if (win->fd < 0) return -1;
     
     return 0;
 }

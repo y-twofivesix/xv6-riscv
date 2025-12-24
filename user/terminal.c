@@ -7,18 +7,19 @@
 #include "user/font.h"
 #include "user/sulu_client.h"
 
-// Terminal dimensions
-#define COLS 60
-#define ROWS 20
+// Terminal dimensions (default)
+int g_cols = 60;
+int g_rows = 20;
+
 #define CHAR_W 8
 #define CHAR_H 8
 #define PADDING 8
 #define LINE_SPACING 8
 #define TITLE_HEIGHT 20
 
-// Window size = terminal content area
-#define WIN_WIDTH  (COLS * CHAR_W + 2 * PADDING)
-#define WIN_HEIGHT (ROWS * (CHAR_H + LINE_SPACING) + 2 * PADDING)
+// Initial window size calculation
+#define INITIAL_WIDTH  (g_cols * CHAR_W + 2 * PADDING)
+#define INITIAL_HEIGHT (g_rows * (CHAR_H + LINE_SPACING) + 2 * PADDING)
 
 // Colors
 #define TERM_BACK     0xFF040720  // Fully opaque dark purple
@@ -54,7 +55,7 @@ char keymap_shift[128] = {
 
 // Terminal state
 typedef struct {
-  char display[ROWS][COLS];
+  char display[100][160]; // Max size for SULU_SCREEN_W/H
   int cursor_row;
   int cursor_col;
   int esc_state;
@@ -65,14 +66,19 @@ typedef struct {
 } Terminal;
 
 // Globals
-struct sulu_window_shm *shm;
-uint *pixels;
+struct sulu_window win;
 Terminal term;
 int shell_fd_in;   // Write to shell
 int shell_fd_out;  // Read from shell
 int shift_state = 0;
 int ctrl_pressed = 0;
 int capslock_state = 0;
+
+// Helper to access SHM/Pixels from global win
+#define shm (win.shm)
+#define pixels (win.pixels)
+#define WIN_W (win.width)
+#define WIN_H (win.height)
 
 // Draw a single character at pixel position (with background)
 // Uses the Sulu API for the actual glyph rendering
@@ -88,10 +94,10 @@ void redraw_line(int r) {
   int base_py = PADDING + r * (CHAR_H + LINE_SPACING);
   
   // Clear line first (full width, include line spacing)
-  sulu_fill_rect(shm, 0, base_py, WIN_WIDTH, CHAR_H + LINE_SPACING, TERM_BACK);
+  sulu_fill_rect(shm, 0, base_py, WIN_W, CHAR_H + LINE_SPACING, TERM_BACK);
   
   int px = PADDING;
-  for (int c = 0; c < COLS; c++) {
+  for (int c = 0; c < g_cols; c++) {
     int py = base_py;
     char ch = term.display[r][c];
     
@@ -160,8 +166,8 @@ void term_putc(char c) {
       // End of sequence
       if (c == 'J') {
         // Clear screen
-        for (int r = 0; r < ROWS; r++) {
-          for (int co = 0; co < COLS; co++) {
+        for (int r = 0; r < g_rows; r++) {
+          for (int co = 0; co < g_cols; co++) {
             term.display[r][co] = ' ';
             draw_char(r, co, ' ', TEXT_COLOR);
           }
@@ -170,7 +176,7 @@ void term_putc(char c) {
         term.cursor_col = 0;
       } else if (c == 'K') {
         // Clear to end of line
-        for (int co = term.cursor_col; co < COLS; co++) {
+        for (int co = term.cursor_col; co < g_cols; co++) {
           term.display[term.cursor_row][co] = ' ';
           draw_char(term.cursor_row, co, ' ', TEXT_COLOR);
         }
@@ -190,8 +196,8 @@ void term_putc(char c) {
         if (row > 0) row--;
         if (col > 0) col--;
         int old_row = term.cursor_row;
-        if (row < ROWS) term.cursor_row = row;
-        if (col < COLS) term.cursor_col = col;
+        if (row < g_rows) term.cursor_row = row;
+        if (col < g_cols) term.cursor_col = col;
         redraw_line(old_row);
         if (term.cursor_row != old_row) redraw_line(term.cursor_row);
       }
@@ -200,24 +206,24 @@ void term_putc(char c) {
   }
   
   // Handle line wrap
-  if (term.cursor_col >= COLS) {
+  if (term.cursor_col >= g_cols) {
     term.cursor_col = 0;
     term.cursor_row++;
   }
   
   // Handle scroll
-  if (term.cursor_row >= ROWS) {
-    for (int r = 1; r < ROWS; r++) {
-      for (int co = 0; co < COLS; co++) {
+  if (term.cursor_row >= g_rows) {
+    for (int r = 1; r < g_rows; r++) {
+      for (int co = 0; co < g_cols; co++) {
         term.display[r - 1][co] = term.display[r][co];
         draw_char(r - 1, co, term.display[r - 1][co], TEXT_COLOR);
       }
     }
-    for (int co = 0; co < COLS; co++) {
-      term.display[ROWS - 1][co] = ' ';
-      draw_char(ROWS - 1, co, ' ', TEXT_COLOR);
+    for (int co = 0; co < g_cols; co++) {
+      term.display[g_rows - 1][co] = ' ';
+      draw_char(g_rows - 1, co, ' ', TEXT_COLOR);
     }
-    term.cursor_row = ROWS - 1;
+    term.cursor_row = g_rows - 1;
   }
 }
 
@@ -245,18 +251,13 @@ char key_to_char(int code) {
 int
 main(int argc, char *argv[])
 {
-  int my_pid = getpid();
   int shmid;
   
   // 1. Create and attach SHM using helper
-  shm = sulu_attach(my_pid, WIN_WIDTH, WIN_HEIGHT, 0, &shmid);
-  if (!shm) {
-    printf("terminal: sulu_attach failed\n");
+  if (sulu_init(&win, INITIAL_WIDTH, INITIAL_HEIGHT, TERM_BACK, 0) < 0) {
+    printf("terminal: sulu_init failed\n");
     exit(1);
   }
-  
-  // Get pixel buffer
-  pixels = sulu_pixels(shm);
 
   // 3. Initialize terminal state
   term.cursor_row = 0;
@@ -264,8 +265,8 @@ main(int argc, char *argv[])
   term.esc_state = 0;
   term.input_start_row = 0;
   term.input_start_col = 0;
-  for (int r = 0; r < ROWS; r++) {
-    for (int c = 0; c < COLS; c++) {
+  for (int r = 0; r < g_rows; r++) {
+    for (int c = 0; c < g_cols; c++) {
       term.display[r][c] = ' ';
     }
   }
@@ -304,15 +305,7 @@ main(int argc, char *argv[])
   shell_fd_in = p_in[1];
   shell_fd_out = p_out[0];
   
-  // 6. Set bgcolor in SHM BEFORE connecting (Sulu will read this)
-  shm->bgcolor = TERM_BACK;
-  
-  // 7. Connect to Sulu using the new /dev/sulu binary API
-  int sulu_fd = sulu_connect(my_pid, WIN_WIDTH, WIN_HEIGHT);
-  if (sulu_fd < 0) {
-    printf("terminal: sulu_connect failed\n");
-    exit(1);
-  }
+  // 6. Connect to Sulu - ALREADY DONE by sulu_init
   
   // Set window title and cursor
   sulu_set_title(shm, "Terminal");
@@ -322,7 +315,7 @@ main(int argc, char *argv[])
   
   // 7. Initial render - draw cursor at position 0,0
   redraw_line(0);
-  sulu_blit(shm, 0, 0, WIN_WIDTH, WIN_HEIGHT);
+          sulu_blit(shm, 0, 0, WIN_W, WIN_H);
   
   // 8. Main loop
   while (1) {
@@ -340,7 +333,7 @@ main(int argc, char *argv[])
         term.input_start_col = term.cursor_col;
         
         // Request Sulu to redraw
-        sulu_blit(shm, 0, 0, WIN_WIDTH, WIN_HEIGHT);
+                sulu_blit(shm, 0, 0, WIN_W, WIN_H);
       }
     }
     
@@ -352,6 +345,28 @@ main(int argc, char *argv[])
       if (ev.type == SULU_EV_CLOSE) {
         printf("terminal: closing\n");
         exit(0);
+      }
+
+      if (ev.type == SULU_EV_MAXIMIZE) {
+        if(ev.value) { // Maximize
+            // Request full screen
+            sulu_resize(&win, SULU_SCREEN_W, SULU_SCREEN_H - SULU_TITLE_BAR_HEIGHT);
+        } else { // Restore
+            // Use dimensions provided in event x/y if available, else use default
+            int rw = (ev.x > 0) ? ev.x : 480;
+            int rh = (ev.y > 0) ? ev.y : 320;
+            sulu_resize(&win, rw, rh);
+        }
+        // Update terminal dimensions
+        g_cols = win.width / 8;
+        g_rows = win.height / 8;
+
+        // Redraw all content to the new buffer
+        for(int i = 0; i < g_rows; i++) {
+            redraw_line(i);
+        }
+        sulu_blit(shm, 0, 0, WIN_W, WIN_H);
+        continue;
       }
 
       if (ev.type == SULU_EV_KEY && ev.value == 1) {
@@ -377,16 +392,16 @@ main(int argc, char *argv[])
           if (term.cursor_row == term.input_start_row && term.cursor_col > term.input_start_col) {
             term.cursor_col--;
             redraw_line(term.cursor_row);
-            sulu_blit(shm, 0, 0, WIN_WIDTH, WIN_HEIGHT);
+                    sulu_blit(shm, 0, 0, WIN_W, WIN_H);
           }
           continue;
         }
         if (code == KEY_RIGHT) {
           // Move right within bounds (no content limit)
-          if (term.cursor_col < COLS - 1) {
+          if (term.cursor_col < g_cols - 1) {
             term.cursor_col++;
             redraw_line(term.cursor_row);
-            sulu_blit(shm, 0, 0, WIN_WIDTH, WIN_HEIGHT);
+                    sulu_blit(shm, 0, 0, WIN_W, WIN_H);
           }
           continue;
         }
@@ -402,7 +417,7 @@ main(int argc, char *argv[])
           }
           write(shell_fd_in, &ch, 1);
           term_putc(ch);  // Echo
-          sulu_blit(shm, 0, 0, WIN_WIDTH, WIN_HEIGHT);
+                  sulu_blit(shm, 0, 0, WIN_W, WIN_H);
         }
       } else if (ev.type == SULU_EV_KEY && ev.value == 0) {
         int code = ev.code;

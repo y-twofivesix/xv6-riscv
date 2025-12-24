@@ -15,7 +15,7 @@ int main(int argc, char*argv[])
   int height = 480;
   struct sulu_window win;
   
-  if(sulu_init(&win, width, height, SULU_FLAG_DOUBLE_BUFFER) < 0) {
+  if(sulu_init(&win, width, height, 0xFF0000FF, SULU_FLAG_DOUBLE_BUFFER) < 0) {
     printf("rect_demo: sulu_init failed\n");
     exit(1);
   }
@@ -24,7 +24,6 @@ int main(int argc, char*argv[])
   // 2. Set window title and cursor
   sulu_set_title(win.shm, "Bouncing Box Demo");
   win.shm->cursor_type = SULU_CURSOR_ARROW;
-  win.shm->bgcolor = 0xFF0000FF;
   
   sleep(10);  // Give Sulu time to create window
   
@@ -57,6 +56,17 @@ int main(int argc, char*argv[])
       if(ev.type == SULU_EV_CLOSE) {
         printf("rect_demo: closing\n");
         exit(0);
+      }
+      if(ev.type == SULU_EV_MAXIMIZE) {
+        if(ev.value) { // Maximize
+            width = SULU_SCREEN_W; height = SULU_SCREEN_H - SULU_TITLE_BAR_HEIGHT;
+            sulu_resize(&win, width, height);
+        } else { // Restore
+            width = (ev.x > 0) ? ev.x : 400;
+            height = (ev.y > 0) ? ev.y : 300;
+            sulu_resize(&win, width, height);
+        }
+        continue;
       }
     }
 
