@@ -62,7 +62,13 @@ sulu_connect(int shm_key, int width, int height) {
 #define SULU_EV_KEY          1   // Keyboard event
 #define SULU_EV_MOUSE_MOVE   2   // Mouse movement
 #define SULU_EV_MOUSE_BTN    3   // Mouse button
+
+// Cursor Types
+#define SULU_CURSOR_ARROW    0
+#define SULU_CURSOR_IBEAM    1
+#define SULU_CURSOR_NONE     255
 #define SULU_EV_FOCUS        4   // Window focus gained/lost
+#define SULU_EV_CLOSE        5   // User clicked close button
 
 // Command structure (client writes these)
 struct sulu_cmd {
@@ -95,6 +101,7 @@ struct sulu_window_shm {
     int width;
     int height;
     int flags;              // SULU_FLAG_*
+    int cursor_type;        // SULU_CURSOR_*
     int front_buf;          // Index of front buffer (for double buffering)
     uint bgcolor;           // Window background color (ARGB)
     char title[64];         // Window title (null-terminated)

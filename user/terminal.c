@@ -314,8 +314,9 @@ main(int argc, char *argv[])
     exit(1);
   }
   
-  // Set window title
+  // Set window title and cursor
   sulu_set_title(shm, "Terminal");
+  shm->cursor_type = SULU_CURSOR_IBEAM;
   
   sleep(50);  // Give Sulu time to create window
   
@@ -348,6 +349,11 @@ main(int argc, char *argv[])
       struct sulu_event ev;
       sulu_event_pop(shm, &ev);
       
+      if (ev.type == SULU_EV_CLOSE) {
+        printf("terminal: closing\n");
+        exit(0);
+      }
+
       if (ev.type == SULU_EV_KEY && ev.value == 1) {
         int code = ev.code;
         

@@ -10,10 +10,14 @@
 
 #define BACK_COLOR (uint)0xFF08113B
 #define CURSOR_COLOR (uint)0xFFFF0000
+#define ACTION_CURSOR_COLOR (uint)0xFF00A0FF
 #define UNFOCUS_COLOR (uint)0xFF120A8F
 #define FOCUS_COLOR (uint)0xFF00FFCB
 #define TERM_BACK (uint)0x55040720
 #define TITLE_BAR_HEIGHT 20
+#define CLOSE_BTN_SIZE 14
+#define CLOSE_BTN_NORMAL (uint)0xFF8B0000
+#define CLOSE_BTN_HOVER (uint)0xFFFF0000
 
 // Input Event Codes
 #define EV_ABS 0x03
@@ -80,6 +84,37 @@ Window *focus_win = 0;
 #define SULU_FRAME_CYCLES (10000000 / SULU_DEFAULT_FPS)
 #define INPUT_DRAIN_LIMIT 20 // Max input events to process per loop
 #define CLIENT_CMD_LIMIT  1 // Max client commands to process per loop per window
+
+Window* find_window_at(int x, int y);
+
+// ============================================================================
+// Cursor Bitmaps (10x10)
+// ============================================================================
+static uint8 cursor_arrow[100] = {
+  1,1,0,0,0,0,0,0,0,0,
+  1,1,1,0,0,0,0,0,0,0,
+  1,1,1,1,0,0,0,0,0,0,
+  1,1,1,1,1,0,0,0,0,0,
+  1,1,1,1,1,1,0,0,0,0,
+  1,1,1,1,1,1,1,0,0,0,
+  1,1,1,1,1,1,1,1,0,0,
+  1,1,1,1,0,0,0,0,0,0,
+  1,0,0,1,1,0,0,0,0,0,
+  0,0,0,0,1,1,0,0,0,0,
+};
+
+static uint8 cursor_ibeam[100] = {
+  0,1,1,1,1,1,1,1,1,0,
+  0,0,0,0,1,1,0,0,0,0,
+  0,0,0,0,1,1,0,0,0,0,
+  0,0,0,0,1,1,0,0,0,0,
+  0,0,0,0,1,1,0,0,0,0,
+  0,0,0,0,1,1,0,0,0,0,
+  0,0,0,0,1,1,0,0,0,0,
+  0,0,0,0,1,1,0,0,0,0,
+  0,0,0,0,1,1,0,0,0,0,
+  0,1,1,1,1,1,1,1,1,0,
+};
 
 // ============================================================================
 // Z-Index Based Compositing System
@@ -199,7 +234,7 @@ void composite_region(Rect *r) {
                             info[n++] = '0' + pid % 10;
                             info[n] = 0;
                             
-                            int info_x = w->w - (n * 8) - 6;  // Right-align with padding
+                            int info_x = w->w - (n * 8) - 24;  // Shifted left to clear close button
                             int info_char_idx = buf_x - info_x;
                             if(info_char_idx >= 0 && info_char_idx < n * 8) {
                                 int char_num = info_char_idx / 8;
@@ -215,7 +250,17 @@ void composite_region(Rect *r) {
                                 }
                             }
                         }
-                        fb[y * SCREEN_W + x] = bar_color;
+                        // Close button
+                        int btn_x = w->x + w->w - CLOSE_BTN_SIZE - 4;
+                        int btn_y = w->y + 3;
+                        if (x >= btn_x && x < btn_x + CLOSE_BTN_SIZE &&
+                            y >= btn_y && y < btn_y + CLOSE_BTN_SIZE) {
+                            int is_hover = (mouse_x >= btn_x && mouse_x < btn_x + CLOSE_BTN_SIZE &&
+                                            mouse_y >= btn_y && mouse_y < btn_y + CLOSE_BTN_SIZE);
+                            fb[y * SCREEN_W + x] = is_hover ? CLOSE_BTN_HOVER : CLOSE_BTN_NORMAL;
+                        } else {
+                            fb[y * SCREEN_W + x] = bar_color;
+                        }
                     } else {
                         // Client pixel buffer (offset by title bar)
                         int client_y = buf_y - TITLE_BAR_HEIGHT;
@@ -228,20 +273,44 @@ void composite_region(Rect *r) {
         w = w->next;
     }
     
-    // 3. Draw cursor last (highest z-index)
-    if (!(cursor_rect.x + cursor_rect.w <= rx || rx2 <= cursor_rect.x ||
-          cursor_rect.y + cursor_rect.h <= ry || ry2 <= cursor_rect.y)) {
-        int cx1 = (rx > cursor_rect.x) ? rx : cursor_rect.x;
-        int cy1 = (ry > cursor_rect.y) ? ry : cursor_rect.y;
-        int cx2 = (rx2 < cursor_rect.x + 10) ? rx2 : cursor_rect.x + 10;
-        int cy2 = (ry2 < cursor_rect.y + 10) ? ry2 : cursor_rect.y + 10;
-        
-        for (int y = cy1; y < cy2; y++) {
-            for (int x = cx1; x < cx2; x++) {
-                fb[y * SCREEN_W + x] = CURSOR_COLOR;
+        // 3. Draw cursor last (highest z-index)
+        Window *hit = find_window_at(cursor_rect.x, cursor_rect.y);
+        uint8 *bitmap = cursor_arrow;
+        uint cursor_color = CURSOR_COLOR;
+
+        if(hit && hit->type == WIN_TYPE_CLIENT && hit->shm) {
+            int local_x = cursor_rect.x - hit->x;
+            int local_y = cursor_rect.y - hit->y;
+            
+            // Check if hovering actionable area (close button)
+            if(local_y < TITLE_BAR_HEIGHT && local_x >= hit->w - CLOSE_BTN_SIZE - 4 && local_x < hit->w - 4) {
+                cursor_color = ACTION_CURSOR_COLOR;
+            }
+
+            if(local_y >= TITLE_BAR_HEIGHT) { // Only use client cursor in content area
+                if(hit->shm->cursor_type == SULU_CURSOR_IBEAM) {
+                    bitmap = cursor_ibeam;
+                }
             }
         }
-    }
+
+        if (!(cursor_rect.x + cursor_rect.w <= rx || rx2 <= cursor_rect.x ||
+              cursor_rect.y + cursor_rect.h <= ry || ry2 <= cursor_rect.y)) {
+            int cx1 = (rx > cursor_rect.x) ? rx : cursor_rect.x;
+            int cy1 = (ry > cursor_rect.y) ? ry : cursor_rect.y;
+            int cx2 = (rx2 < cursor_rect.x + 10) ? rx2 : cursor_rect.x + 10;
+            int cy2 = (ry2 < cursor_rect.y + 10) ? ry2 : cursor_rect.y + 10;
+            
+            for (int y = cy1; y < cy2; y++) {
+                for (int x = cx1; x < cx2; x++) {
+                    int bx = x - cursor_rect.x;
+                    int by = y - cursor_rect.y;
+                    if(bitmap[by * 10 + bx]) {
+                        fb[y * SCREEN_W + x] = cursor_color;
+                    }
+                }
+            }
+        }
 }
 
 // Composite and flush all dirty regions
@@ -275,6 +344,16 @@ void cursor_move(int new_x, int new_y) {
     
     // Mark old position dirty
     mark_dirty(cursor_rect.x, cursor_rect.y, 10, 10);
+
+    // If we were hovering a close button, mark it dirty so it transitions back
+    Window *old_hit = find_window_at(cursor_rect.x, cursor_rect.y);
+    if(old_hit && old_hit->type == WIN_TYPE_CLIENT) {
+        int bx = cursor_rect.x - old_hit->x;
+        int by = cursor_rect.y - old_hit->y;
+        if(by < TITLE_BAR_HEIGHT && bx >= old_hit->w - CLOSE_BTN_SIZE - 4 && bx < old_hit->w - 4) {
+             mark_dirty(old_hit->x + old_hit->w - CLOSE_BTN_SIZE - 4, old_hit->y + 3, CLOSE_BTN_SIZE, CLOSE_BTN_SIZE);
+        }
+    }
     
     // Update position
     cursor_rect.x = new_x;
@@ -282,6 +361,16 @@ void cursor_move(int new_x, int new_y) {
     
     // Mark new position dirty
     mark_dirty(new_x, new_y, 10, 10);
+
+    // If we are now hovering a close button, mark it dirty so it transitions to bright red
+    Window *new_hit = find_window_at(new_x, new_y);
+    if(new_hit && new_hit->type == WIN_TYPE_CLIENT) {
+        int bx = new_x - new_hit->x;
+        int by = new_y - new_hit->y;
+        if(by < TITLE_BAR_HEIGHT && bx >= new_hit->w - CLOSE_BTN_SIZE - 4 && bx < new_hit->w - 4) {
+             mark_dirty(new_hit->x + new_hit->w - CLOSE_BTN_SIZE - 4, new_hit->y + 3, CLOSE_BTN_SIZE, CLOSE_BTN_SIZE);
+        }
+    }
     
     // Composite and flush removed (now centralized in main loop)
 }
@@ -717,9 +806,26 @@ main(int argc, char *argv[])
                               
                               // Start Drag (if on title bar)
                               if(hit->type == WIN_TYPE_CLIENT && mouse_y < hit->y + TITLE_BAR_HEIGHT) {
-                                drag_win = hit;
-                                drag_off_x = mouse_x - hit->x;
-                                drag_off_y = mouse_y - hit->y;
+                                // Check if close button was clicked
+                                int btn_x = hit->x + hit->w - CLOSE_BTN_SIZE - 4;
+                                int btn_y = hit->y + 3;
+                                if(mouse_x >= btn_x && mouse_x < btn_x + CLOSE_BTN_SIZE &&
+                                   mouse_y >= btn_y && mouse_y < btn_y + CLOSE_BTN_SIZE) {
+                                    // Send close event to client
+                                    if(hit->shm) {
+                                        struct sulu_ring *r = &hit->shm->event_ring;
+                                        int next = (r->head + 1) % SULU_EVENT_RING_SIZE;
+                                        if(next != r->tail) {
+                                            hit->shm->event_buf[r->head].type = SULU_EV_CLOSE;
+                                            r->head = next;
+                                        }
+                                    }
+                                    close_window(hit);
+                                } else {
+                                    drag_win = hit;
+                                    drag_off_x = mouse_x - hit->x;
+                                    drag_off_y = mouse_y - hit->y;
+                                }
                               }
                           }
                       } else {

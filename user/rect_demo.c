@@ -21,8 +21,9 @@ int main(int argc, char*argv[])
   }
   printf("rect_demo: window created at %p\n", win.shm);
   
-  // 2. Set window title
+  // 2. Set window title and cursor
   sulu_set_title(win.shm, "Bouncing Box Demo");
+  win.shm->cursor_type = SULU_CURSOR_ARROW;
   
   sleep(10);  // Give Sulu time to create window
   
@@ -45,6 +46,16 @@ int main(int argc, char*argv[])
       if(sulu_resize(&win, width, height) < 0) {
         printf("rect_demo: resize failed!\n");
         break;
+      }
+    }
+
+    // Process events (like close button)
+    while(sulu_event_available(win.shm)) {
+      struct sulu_event ev;
+      sulu_event_pop(win.shm, &ev);
+      if(ev.type == SULU_EV_CLOSE) {
+        printf("rect_demo: closing\n");
+        exit(0);
       }
     }
 
