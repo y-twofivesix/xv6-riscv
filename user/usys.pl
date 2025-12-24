@@ -46,4 +46,5 @@ entry("gpu_flush");
 entry("gpu_flush_rect");
 entry("yield");
 entry("shmdt");
+entry("flush_console");
 

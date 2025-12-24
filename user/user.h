@@ -33,7 +33,7 @@ int shmdt(int, void*);
 int gpu_flush(void);
 int gpu_flush_rect(int x, int y, int w, int h);
 int yield(void);
-
+void flush_console(void);
 
 
 

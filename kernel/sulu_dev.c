@@ -98,6 +98,14 @@ sulu_dev_read(int user_dst, uint64 dst, int n, int off)
     struct proc *p = myproc();
     acquire(&sulu_state.lock);
     
+    // If this is a NEW server process, reset the queue (clears stale events from crashed server)
+    if(sulu_state.server_pid != p->pid) {
+        sulu_state.head = 0;
+        sulu_state.tail = 0;
+        sulu_state.server_pid = p->pid;
+        console_flush();  // Also flush console input to prevent stale chars
+    }
+    
     // If queue empty, return 0 (Non-blocking for game loop)
     if(sulu_state.head == sulu_state.tail) {
         release(&sulu_state.lock);
@@ -130,6 +138,17 @@ sulu_dev_close(int minor, struct file *f)
     sulu_queue_event(SULU_EVENT_DISCONNECT, p->pid, 0, 0);
     
     return 0;
+}
+
+// Reset sulu_dev state - called when Sulu restarts to clear old events
+void
+sulu_dev_reset(void)
+{
+    acquire(&sulu_state.lock);
+    sulu_state.head = 0;
+    sulu_state.tail = 0;
+    sulu_state.server_pid = 0;
+    release(&sulu_state.lock);
 }
   
 

@@ -69,34 +69,55 @@ main(void)
         printf("[INIT] GUI mode detected\n");
         // Create GUI-specific devices
         mknod("/dev/input", INPUT, 0);
-        printf("\n[INIT] starting Sulu...\n");
         
-        pid = fork();
-        if(pid < 0){
-          printf("init: fork failed\n");
-          exit(1);
-        }
-        if(pid == 0){
-          char *argv_sulu[] = { "sulu", 0 };
-          exec("/bin/sulu", argv_sulu);
-          printf("init: exec sulu failed\n");
-          exit(1);
-        }
-        
-        // ALSO start a shell on the UART console for serial access
+        // Start shell FIRST on UART console for faster serial access
         printf("[INIT] Starting serial console shell...\n");
+        printf("\033[?25h");  // Enable cursor for serial console
+        flush_console();  // Clear any stale input from previous crashes
         int shell_pid = fork();
         if(shell_pid < 0){
           printf("init: fork failed\n");
           exit(1);
         }
         if(shell_pid == 0){
-          // Enable cursor for serial console
-          printf("\033[?25h");
           char *argv_sh[] = { "sh", 0 };
           exec("/bin/sh", argv_sh);
           printf("init: exec sh failed\n");
           exit(1);
+        }
+        
+        // Then start Sulu window manager
+        printf("[INIT] starting Sulu...\n");
+        int sulu_pid = fork();
+        if(sulu_pid < 0){
+          printf("init: fork failed\n");
+          exit(1);
+        }
+        if(sulu_pid == 0){
+          char *argv_sulu[] = { "sulu", 0 };
+          exec("/bin/sulu", argv_sulu);
+          printf("init: exec sulu failed\n");
+          exit(1);
+        }
+        
+        // Wait for either Sulu or shell to exit
+        for(;;){
+          wpid = wait((int *) 0);
+          if(wpid == sulu_pid){
+            // Sulu exited - kill shell and restart both
+            kill(shell_pid);
+            wait(0);  // Reap the shell
+            break;
+          } else if(wpid == shell_pid){
+            // Shell exited - kill Sulu and restart both
+            kill(sulu_pid);
+            wait(0);  // Reap Sulu
+            break;
+          } else if(wpid < 0){
+            printf("init: wait returned an error\n");
+            exit(1);
+          }
+          // else: parentless process exited, continue waiting
         }
     } else {
         printf("\n[INIT] Headless mode - starting shell...\n");
@@ -112,21 +133,18 @@ main(void)
           printf("init: exec sh failed\n");
           exit(1);
         }
-    }
-
-    for(;;){
-      // this call to wait() returns if the shell exits,
-      // or if a parentless process exits.
-      wpid = wait((int *) 0);
-      if(wpid == pid){
-        // the shell exited; restart it.
-        break;
-      } else if(wpid < 0){
-        printf("init: wait returned an error\n");
-        exit(1);
-      } else {
-        // it was a parentless process; do nothing.
-      }
+        
+        // Wait for shell to exit
+        for(;;){
+          wpid = wait((int *) 0);
+          if(wpid == pid){
+            // Shell exited; restart it
+            break;
+          } else if(wpid < 0){
+            printf("init: wait returned an error\n");
+            exit(1);
+          }
+        }
     }
   }
 }

@@ -23,6 +23,7 @@ void            consoleintr(int);
 void            consputc(int);
 int             consoleread(int, uint64, int, int);
 int             consolewrite(int, uint64, int, int);
+void            console_flush(void);
 
 // exec.c
 int             exec(char*, char**);
@@ -105,6 +106,7 @@ void            sulu_dev_init(void);
 int             sulu_dev_read(int, uint64, int, int);
 int             sulu_dev_write(int, uint64, int, int);
 int             sulu_dev_close(int, struct file*);
+void            sulu_dev_reset(void);
 
 
 void            virtio_gpu_init(void);

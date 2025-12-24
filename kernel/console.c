@@ -188,3 +188,12 @@ consoleinit(void)
   devsw[CONSOLE].read = consoleread;
   devsw[CONSOLE].write = consolewrite;
 }
+
+// Flush console input buffer - useful after crashes
+void
+console_flush(void)
+{
+  acquire(&cons.lock);
+  cons.r = cons.w = cons.e = 0;
+  release(&cons.lock);
+}

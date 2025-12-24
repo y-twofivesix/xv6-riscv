@@ -389,3 +389,10 @@ sys_shmdt(void)
   release(&shm_table.lock);
   return 0;
 }
+
+uint64
+sys_flush_console(void)
+{
+  console_flush();
+  return 0;
+}
