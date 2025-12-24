@@ -13,6 +13,7 @@
 #define UNFOCUS_COLOR (uint)0xFF120A8F
 #define FOCUS_COLOR (uint)0xFF00FFCB
 #define TERM_BACK (uint)0x55040720
+#define TITLE_BAR_HEIGHT 20
 
 // Input Event Codes
 #define EV_ABS 0x03
@@ -45,50 +46,11 @@ struct input_event {
   uint32 value;
 };
 
-// Maps (Linux Input Event codes)
-char keymap[128] = {
-  0, 27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', // 0-14
-  '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', // 15-28
-  0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\', // 29-43
-  'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0, '*', 0, ' ' // 44-57
-};
-
-char keymap_shift[128] = {
-  0, 27, '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '\b', // 0-14
-  '\t', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '\n', // 15-28
-  0, 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '"', '~', 0, '|', // 29-43
-  'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', 0, '*', 0, ' ' // 44-57
-};
-
 int shift_state = 0;
 int ctrl_pressed = 0;
 int capslock_state = 0;
 
-// Terminal
-#define COLS 60
-#define ROWS 20
-#define CHAR_W 8
-#define CHAR_H 8
-#define PADDING 8
-#define LINE_SPACING 8  // Extra pixels between lines (like CSS line-height)
-
-typedef struct Terminal {
-    int pid;
-    int fd_in;  // Write here to send to shell
-    int fd_out; // Read here from shell
-    
-    char display[ROWS][COLS];
-    int cursor_row;
-    int cursor_col;
-    int esc_state; // 0=Norm, 1=Esc, 2=Bracket
-    int input_start_row;  // Where current input line started
-    int input_start_col;  // Column where input started
-    char ansi_buf[16];    // Buffer for ANSI parameters
-    int ansi_idx;         // Index into ansi_buf
-} Terminal;
-
-// Window types
-#define WIN_TYPE_TERMINAL 0
+// Window type (all windows are now client windows)
 #define WIN_TYPE_CLIENT   1
 
 typedef struct Window {
@@ -98,12 +60,9 @@ typedef struct Window {
   uint *buf; 
   struct Window *next;
   
-  int type;                       // WIN_TYPE_TERMINAL or WIN_TYPE_CLIENT
-  int client_pid;                 // PID of client process (for CLIENT type)
-  struct sulu_window_shm *shm;    // Shared memory header (for CLIENT type)
-  
-  // Terminal State (only used for WIN_TYPE_TERMINAL)
-  Terminal term;
+  int type;                       // Always WIN_TYPE_CLIENT
+  int client_pid;                 // PID of client process
+  struct sulu_window_shm *shm;    // Shared memory header
 } Window;
 
 // Globals
@@ -117,11 +76,9 @@ Window *drag_win = 0;
 int drag_off_x, drag_off_y;
 Window *focus_win = 0;
 
-void update_title_colors();
-
-// Rate limiting for drag operations to reduce jitter
-static int composite_skip_counter = 0;
-#define COMPOSITE_RATE_LIMIT 2  // composite every Nth event (2 = 50% rate)
+// Rate limiting for high-frequency updates (drag, animations)
+static int frame_counter = 0;
+#define FRAME_RATE_LIMIT 1  // flush every Nth event
 
 // ============================================================================
 // Z-Index Based Compositing System
@@ -194,35 +151,25 @@ void composite_region(Rect *r) {
             int wy1 = (ry > w->y) ? ry : w->y;
             int wx2 = (rx2 < w->x + w->w) ? rx2 : w->x + w->w;
             int wy2 = (ry2 < w->y + w->h) ? ry2 : w->y + w->h;
-            
-            if(w->type == WIN_TYPE_CLIENT) {
-                // Client window: title bar (20px) + client buffer
-                for (int y = wy1; y < wy2; y++) {
-                    for (int x = wx1; x < wx2; x++) {
-                        int buf_x = x - w->x;
-                        int buf_y = y - w->y;
-                        
-                        if(buf_y < 20) {
-                            // Title bar
-                            uint color = (w == focus_win) ? FOCUS_COLOR : UNFOCUS_COLOR;
-                            fb[y * SCREEN_W + x] = color;
-                        } else {
-                            // Client pixel buffer (offset by title bar)
-                            int client_y = buf_y - 20;
-                            fb[y * SCREEN_W + x] = w->buf[client_y * w->w + buf_x];
-                        }
-                    }
-                }
-            } else {
-                // Terminal window: use buf directly
-                for (int y = wy1; y < wy2; y++) {
-                    for (int x = wx1; x < wx2; x++) {
-                        int buf_x = x - w->x;
-                        int buf_y = y - w->y;
-                        fb[y * SCREEN_W + x] = w->buf[buf_y * w->w + buf_x];
+        
+            // Client window: TITLE_BAR_HEIGHT + client buffer
+            for (int y = wy1; y < wy2; y++) {
+                for (int x = wx1; x < wx2; x++) {
+                    int buf_x = x - w->x;
+                    int buf_y = y - w->y;
+                    
+                    if(buf_y < TITLE_BAR_HEIGHT) {
+                        // Title bar
+                        uint color = (w == focus_win) ? FOCUS_COLOR : UNFOCUS_COLOR;
+                        fb[y * SCREEN_W + x] = color;
+                    } else {
+                        // Client pixel buffer (offset by title bar)
+                        int client_y = buf_y - TITLE_BAR_HEIGHT;
+                        fb[y * SCREEN_W + x] = w->buf[client_y * w->w + buf_x];
                     }
                 }
             }
+            
         }
         w = w->next;
     }
@@ -292,311 +239,6 @@ void window_mark_dirty(Window *w) {
     mark_dirty(w->x, w->y, w->w, w->h);
 }
 
-// Helper: find last non-empty character position in a row
-int
-find_line_end(Terminal *t, int row)
-{
-    for(int c = COLS - 1; c >= 0; c--){
-        if(t->display[row][c] != 0 && t->display[row][c] != ' '){
-            return c + 1; // Return position after last char (where cursor can be)
-        }
-    }
-    // Empty line - cursor can be at start
-    if(row == t->input_start_row){
-        return t->input_start_col;
-    }
-    return 0;
-}
-// Text Drawing
-// Helper to draw char at specific pixel location
-void
-draw_char_at(Window *w, int px, int py, char ch, uint color)
-{
-    if(ch < ' ' || ch > '~') return;
-    int index = ch - ' ';
-    for(int y=0; y<8; y++){
-        for(int x=0; x<8; x++){
-            if((font_8x8[index][y] >> (7-x)) & 1){
-                 w->buf[(py+y)*w->w + (px+x)] = color;
-            } else {
-                 w->buf[(py+y)*w->w + (px+x)] = TERM_BACK;
-            }
-        }
-    }
-}
-
-void
-redraw_line(Window *w, int r)
-{
-    Terminal *t = &w->term;
-    int base_py = 20 + PADDING + r * (CHAR_H + LINE_SPACING);
-    
-    // Clear line first
-    for(int y=0; y<CHAR_H; y++){
-        for(int x=0; x<w->w; x++){
-            w->buf[(base_py+y)*w->w + x] = TERM_BACK;
-        }
-    }
-
-    int px = PADDING;
-    for(int c=0; c<COLS; c++){
-        int py = base_py;
-        char ch = t->display[r][c];
-        
-        // Determine colors based on focus
-        uint text_color = (w == focus_win) ? 0xFFFFFFFF : 0xFF888888; // White or grey
-        uint cursor_color = (w == focus_win) ? FOCUS_COLOR : 0xFF888888; // Cyan or grey
-        
-        if(r == t->cursor_row && c == t->cursor_col){
-             // Draw Brace Cursor { ch }
-             draw_char_at(w, px, py, '{', cursor_color);
-             px += CHAR_W;
-             if(ch != 0 && ch != ' ') {
-                 draw_char_at(w, px, py, ch, text_color);
-                 px += CHAR_W;
-             } else {
-                 // Cursor on empty space
-             }
-             draw_char_at(w, px, py, '}', cursor_color);
-             px += CHAR_W;
-        } else {
-             if(ch != 0) draw_char_at(w, px, py, ch, text_color);
-             px += CHAR_W;
-        }
-    }
-}
-
-// Legacy wrapper if needed, but we will update term_putc to use redraw_line
-void
-draw_char(Window *w, int r, int c, char ch, uint color)
-{
-    // Redirect to redraw_line to ensure consistency
-    // But update buffer first
-    w->term.display[r][c] = ch;
-    redraw_line(w, r);
-}
-
-void
-term_putc(Window *w, char c)
-{
-    Terminal *t = &w->term;
-    
-    // State Machine
-    if(t->esc_state == 0){
-        // Normal
-        if(c == 27){
-            t->esc_state = 1;
-        } else if(c == '\n'){
-            int old_r = t->cursor_row;
-            t->cursor_col = 0;
-            t->cursor_row++;
-            redraw_line(w, old_r);   // Clear cursor from old line
-            redraw_line(w, t->cursor_row); // Draw cursor on new line
-        } else if(c == '\r'){
-            t->cursor_col = 0;
-            redraw_line(w, t->cursor_row);
-        } else if(c == '\b'){
-            // Only allow backspace if we're after the input boundary
-            int can_backspace = 0;
-            if(t->cursor_row == t->input_start_row && t->cursor_col > t->input_start_col){
-                can_backspace = 1;
-            } else if(t->cursor_row > t->input_start_row && t->cursor_col > 0){
-                can_backspace = 1;
-            }
-            
-            if(can_backspace){
-                // Shift all characters after cursor one position left
-                for(int c = t->cursor_col; c < COLS - 1; c++){
-                    t->display[t->cursor_row][c - 1] = t->display[t->cursor_row][c];
-                }
-                // Clear the last character in the row
-                t->display[t->cursor_row][COLS - 1] = ' ';
-                
-                // Move cursor back
-                t->cursor_col--;
-                
-                // Redraw the entire line to show the shift
-                redraw_line(w, t->cursor_row);
-            }
-        } else {
-            t->display[t->cursor_row][t->cursor_col] = c;
-            t->cursor_col++;
-            redraw_line(w, t->cursor_row);
-        }
-    } else if(t->esc_state == 1){
-        // Saw ESC
-        if(c == '['){
-            t->esc_state = 2; // CSI
-            t->ansi_idx = 0;
-            t->ansi_buf[0] = 0;
-        } else {
-            t->esc_state = 0; // Fallback
-        }
-    } else if(t->esc_state == 2){
-        // CSI Parameter bytes (0-9, ;)
-        if(c >= '0' && c <= '9'){
-            if(t->ansi_idx < 15){
-                t->ansi_buf[t->ansi_idx++] = c;
-                t->ansi_buf[t->ansi_idx] = 0;
-            }
-        } else if(c == ';'){
-            if(t->ansi_idx < 15){
-                t->ansi_buf[t->ansi_idx++] = c;
-                t->ansi_buf[t->ansi_idx] = 0;
-            }
-        } else if(c >= 0x40 && c <= 0x7E){
-            // Final byte - execute command
-            if(c == 'J'){
-                // Clear screen (usually ESC[2J)
-                if(t->ansi_buf[0] == '2' || t->ansi_buf[0] == 0){
-                    // Clear entire display
-                    for(int r = 0; r < ROWS; r++){
-                        for(int col = 0; col < COLS; col++){
-                            t->display[r][col] = ' ';
-                        }
-                        redraw_line(w, r);
-                    }
-                }
-            } else if(c == 'H'){
-                // Cursor position (ESC[row;colH)
-                // Parse row;col from ansi_buf
-                int row = 0, col = 0;
-                char *p = t->ansi_buf;
-                while(*p && *p != ';'){
-                    row = row * 10 + (*p - '0');
-                    p++;
-                }
-                if(*p == ';') p++;
-                while(*p){
-                    col = col * 10 + (*p - '0');
-                    p++;
-                }
-                // Convert 1-based to 0-based
-                if(row > 0) row--;
-                if(col > 0) col--;
-                
-                // Set cursor position
-                int old_row = t->cursor_row;
-                if(row < ROWS) t->cursor_row = row;
-                if(col < COLS) t->cursor_col = col;
-                
-                // Redraw affected lines
-                redraw_line(w, old_row);
-                if(t->cursor_row != old_row) redraw_line(w, t->cursor_row);
-            }
-            // Reset state
-            t->esc_state = 0;
-        }
-    }
-    
-    if(t->cursor_col >= COLS){
-        t->cursor_col = 0;
-        t->cursor_row++;
-    }
-    
-    if(t->cursor_row >= ROWS){
-        // Scroll Up
-        for(int r=1; r<ROWS; r++){
-            for(int co=0; co<COLS; co++){
-                t->display[r-1][co] = t->display[r][co];
-                draw_char(w, r-1, co, t->display[r-1][co], 0xFFFFFFFF);
-            }
-        }
-        // Clear last row
-        for(int co=0; co<COLS; co++){
-             t->display[ROWS-1][co] = ' ';
-             draw_char(w, ROWS-1, co, ' ', 0xFFFFFFFF); // Clear
-        }
-        t->cursor_row = ROWS-1;
-    }
-}
-
-// Window Management
-Window*
-spawn_window(int x, int y)
-{
-  Window *win = malloc(sizeof(Window));
-  win->id = next_win_id++;
-  win->x = x; win->y = y;
-  win->w = COLS*CHAR_W + 2*PADDING;
-  win->h = ROWS*(CHAR_H + LINE_SPACING) + 2*PADDING + 20;
-  win->buf = malloc(win->w * win->h * 4);
-  win->next = 0;
-  win->type = WIN_TYPE_TERMINAL;
-  win->client_pid = 0;
-  win->shm = 0;
-
-  // Clear Buffer
-  for(int i=0; i<win->w*win->h; i++) win->buf[i] = 0xFFCCCCCC;
-  // Title Bar - will be cyan when focused, blue otherwise
-  uint title_color = UNFOCUS_COLOR; // Blue for unfocused (will update on focus)
-  for(int py=0; py<20; py++)
-    for(int px=0; px<win->w; px++) win->buf[py*win->w + px] = title_color;
-  // Client Area Black
-  for(int py=20; py<win->h; py++)
-    for(int px=0; px<win->w; px++) win->buf[py*win->w + px] = TERM_BACK;
-
-  // Setup Terminal
-  win->term.cursor_row = 0;
-  win->term.cursor_col = 0;
-  win->term.input_start_row = 0;
-  win->term.input_start_col = 0;
-  for(int r=0; r<ROWS; r++)
-      for(int c=0; c<COLS; c++)
-          win->term.display[r][c] = ' ';
-
-  // Spawn Shell
-  int p_in[2];
-  int p_out[2];
-  pipe(p_in);
-  pipe(p_out);
-  
-  int pid = fork();
-  if(pid < 0){
-      printf("sulu: fork failed\n");
-      return 0;
-  }
-  if(pid == 0){
-      // Child
-      close(p_in[1]);
-      close(p_out[0]);
-      
-      close(0); dup(p_in[0]);
-      close(1); dup(p_out[1]);
-      close(2); dup(p_out[1]);
-      
-      close(p_in[0]);
-      close(p_out[1]);
-      
-      int fd = open("/bin/sh", O_RDONLY);
-      if(fd < 0) exit(1);
-      close(fd);
-
-      char *argv[] = { "sh", 0 };
-      exec("/bin/sh", argv); 
-      exit(1);
-  }
-  
-  // Parent
-  close(p_in[0]);
-  close(p_out[1]);
-  
-  win->term.pid = pid;
-  win->term.fd_in = p_in[1];
-  win->term.fd_out = p_out[0];
-  
-  // Link
-  if(!windows) windows = win;
-  else {
-      struct Window *curr = windows;
-      while(curr->next) curr = curr->next;
-      curr->next = win;
-  }
-  focus_win = win;
-  update_title_colors();
-  return win;
-}
-
 // Spawn a client window (for external programs using Sulu API)
 Window*
 spawn_client_window(int client_pid, int shm_key, int width, int height)
@@ -641,9 +283,10 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
   shm->event_ring.tail = 0;
   shm->event_ring.size = SULU_EVENT_RING_SIZE;
   
-  // Clear the client's pixel buffer (NOT including title bar - that's drawn by composite())
+  // Clear the client's pixel buffer using their bgcolor (or black if not set)
+  uint bgcolor = shm->bgcolor ? shm->bgcolor : 0xFF000000;
   for(int i = 0; i < width * height; i++)
-    win->buf[i] = 0xFF000000;  // Black
+    win->buf[i] = bgcolor;
   
   // Link into window list
   if(!windows) windows = win;
@@ -653,7 +296,6 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
     curr->next = win;
   }
   focus_win = win;
-  update_title_colors();
   return win;
 }
 
@@ -680,34 +322,6 @@ window_raise(Window *w)
   w->next = 0;
 }
 
-// Update title bar colors based on focus
-void
-update_title_colors()
-{
-  Window *w = windows;
-  while(w){
-      // Skip client windows - their title bar is drawn during composite()
-      if(w->type == WIN_TYPE_CLIENT){
-          w = w->next;
-          continue;
-      }
-      
-      // Update title bar color for terminal windows
-      uint color = (w == focus_win) ? 0xFF00FFCB : 0xFF3333AA;
-      for(int py=0; py<20; py++)
-          for(int px=0; px<w->w; px++)
-              w->buf[py*w->w + px] = color;
-      
-      // Redraw all terminal lines to update text/cursor colors
-      for(int r=0; r<ROWS; r++)
-          redraw_line(w, r);
-          
-      w = w->next;
-  }
-}
-
-// [draw_cursor removed - now using cursor_move() with z-index compositing]
-
 // Composite all windows AND cursor (using z-index: bg -> windows -> cursor)
 void
 composite()
@@ -727,7 +341,18 @@ composite()
           if(y < 0) continue;
           for(int x = w->x, dx = 0; x < x_end; x++, dx++){
                if(x < 0) continue;
-               fb[y * SCREEN_W + x] = w->buf[dy * w->w + dx];
+               if(w->type == WIN_TYPE_CLIENT) {
+                   // Client window: title bar (TITLE_BAR_HEIGHT) + client buffer
+                   if(dy < TITLE_BAR_HEIGHT) {
+                       uint color = (w == focus_win) ? FOCUS_COLOR : UNFOCUS_COLOR;
+                       fb[y * SCREEN_W + x] = color;
+                   } else {
+                       int client_y = dy - TITLE_BAR_HEIGHT;
+                       fb[y * SCREEN_W + x] = w->buf[client_y * w->w + dx];
+                   }
+               } else {
+                   fb[y * SCREEN_W + x] = w->buf[dy * w->w + dx];
+               }
           }
       }
       w = w->next;
@@ -755,9 +380,6 @@ Window* find_window_at(int x, int y){
   return hit;
 }
 
-// Keyboard Map (Partial)
-char kbd_map[128] = { 0, 0, '1','2','3','4','5','6','7','8','9','0','-','=','\b','\t','q','w','e','r','t','y','u','i','o','p','[',']','\n',0,'a','s','d','f','g','h','j','k','l',';','\'','`',0,'\\','z','x','c','v','b','n','m',',','.','/',0,'*',0,' ' };
-
 int
 main(int argc, char *argv[])
 {
@@ -782,9 +404,6 @@ main(int argc, char *argv[])
   
   int input_fd = open("/dev/input", O_RDONLY);
   if(input_fd < 0) exit(1);
-
-  spawn_window(50, 50);
-  spawn_window(600, 100);
   
   // Initial full screen composite and flush
   composite();
@@ -822,16 +441,12 @@ main(int argc, char *argv[])
       }
       
       // 0.6. Process client cmd_rings (BLIT commands)
-
       {
         Window *w = windows;
         while(w) {
           if(w->type == WIN_TYPE_CLIENT && w->shm) {
             struct sulu_ring *r = &w->shm->cmd_ring;
-            int cmd_count = 0;
-            // TODO: Check if this limit can be removed once freeze bug is fixed
-            // Process at most 4 commands per iteration to avoid starving input
-            while(r->head != r->tail && cmd_count < 4) {
+            while(r->head != r->tail) {
               struct sulu_cmd *cmd = &w->shm->cmd_buf[r->tail];
               if(cmd->type == SULU_CMD_BLIT) {
                 // Mark window region dirty and composite
@@ -841,7 +456,6 @@ main(int argc, char *argv[])
                 // TODO: Close window
               }
               r->tail = (r->tail + 1) % SULU_CMD_RING_SIZE;
-              cmd_count++;
             }
           }
           w = w->next;
@@ -849,7 +463,7 @@ main(int argc, char *argv[])
       }
 
       
-      // If suspended, don't process input or terminals normally
+      // If suspended, don't process input normally
       // BUT allow ESC key to resume as emergency fallback
       if(suspended) {
         // Check for ESC key to resume
@@ -879,18 +493,24 @@ main(int argc, char *argv[])
                   if(ev.code == ABS_X) mouse_x = (ev.value * SCREEN_W) / 32767;
                   if(ev.code == ABS_Y) mouse_y = (ev.value * SCREEN_H) / 32767;
                   if(mouse_btn && drag_win){
-                      // Dragging window - update window position and recomposite
+                      // Dragging window - mark old position dirty
+                      window_mark_dirty(drag_win);
+                      
+                      // Update window position
                       drag_win->x = mouse_x - drag_off_x;
                       drag_win->y = mouse_y - drag_off_y;
                       
-                      // Rate limit composite to reduce jitter
-                      if(++composite_skip_counter >= COMPOSITE_RATE_LIMIT){
-                          composite_skip_counter = 0;
-                          // Update cursor position
-                          cursor_rect.x = mouse_x > SCREEN_W - 10 ? SCREEN_W - 10 : (mouse_x < 0 ? 0 : mouse_x);
-                          cursor_rect.y = mouse_y > SCREEN_H - 10 ? SCREEN_H - 10 : (mouse_y < 0 ? 0 : mouse_y);
-                          composite();
-                          gpu_flush();
+                      // Mark new position dirty
+                      window_mark_dirty(drag_win);
+                      
+                      // Also update cursor
+                      cursor_rect.x = mouse_x > SCREEN_W - 10 ? SCREEN_W - 10 : (mouse_x < 0 ? 0 : mouse_x);
+                      cursor_rect.y = mouse_y > SCREEN_H - 10 ? SCREEN_H - 10 : (mouse_y < 0 ? 0 : mouse_y);
+                      mark_dirty(cursor_rect.x, cursor_rect.y, 10, 10);
+                      // Rate-limited composite of dirty regions
+                      if(++frame_counter >= FRAME_RATE_LIMIT) {
+                          frame_counter = 0;
+                          composite_dirty_and_flush();
                       }
                   } else {
                       // Just cursor movement - use efficient dirty region update
@@ -911,7 +531,6 @@ main(int argc, char *argv[])
                               Window *old_focus = focus_win;
                               focus_win = hit;
                               window_raise(focus_win); // Always bring to front on click
-                              update_title_colors();
                               
                               // Mark both old and new focus windows dirty
                               if(old_focus && old_focus != hit){
@@ -930,8 +549,19 @@ main(int argc, char *argv[])
                           drag_win = 0;
                       }
                   }
+                  // Right click - forward to client
+                  else if(ev.code == BTN_RIGHT && ev.value == 1){
+                      if(focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm){
+                          struct sulu_event sev = {
+                              .type = SULU_EV_MOUSE_BTN,
+                              .code = BTN_RIGHT,
+                              .value = 1
+                          };
+                          sulu_event_push(focus_win->shm, &sev);
+                      }
+                  }
                   // Keyboard State
-                  else if(ev.code == KEY_LEFTSHIFT || ev.code == KEY_RIGHTSHIFT){
+                  if(ev.code == KEY_LEFTSHIFT || ev.code == KEY_RIGHTSHIFT){
                       shift_state = (ev.value == 1);
                   } else if(ev.code == KEY_LEFTCTRL || ev.code == KEY_RIGHTCTRL){
                       ctrl_pressed = (ev.value == 1);
@@ -939,7 +569,7 @@ main(int argc, char *argv[])
                       if(ev.value == 1) capslock_state = !capslock_state;
                   }
                   // Hotkeys
-                  else if(ev.code == KEY_E && ev.value == 1 && ctrl_pressed){
+                  if(ev.code == KEY_E && ev.value == 1 && ctrl_pressed){
                       // Ctrl+E -> Suspend
                       int fd = open("/dev/suluctl", O_WRONLY);
                       if(fd >= 0){
@@ -947,112 +577,17 @@ main(int argc, char *argv[])
                           close(fd);
                       }
                   }
-                  // Arrow Keys - Local Cursor Movement
-                  else if(ev.value == 1 || ev.value == 2){ // Press or Repeat
-                      if(focus_win){
-                          Terminal *t = &focus_win->term;
-                          int old_row = t->cursor_row;
-                          
-                          if(ev.code == KEY_LEFT){
-                              // Don't move left past the input boundary
-                              if(t->cursor_row == t->input_start_row && t->cursor_col > t->input_start_col){
-                                  t->cursor_col--;
-                                  redraw_line(focus_win, old_row);
-                                  window_mark_dirty(focus_win);
-                                  did_update = 1;
-                              } else if(t->cursor_row > t->input_start_row && t->cursor_col > 0){
-                                  t->cursor_col--;
-                                  redraw_line(focus_win, old_row);
-                                  window_mark_dirty(focus_win);
-                                  did_update = 1;
-                              }
-                          } else if(ev.code == KEY_RIGHT){
-                              // Don't move past the end of actual content
-                              int line_end = find_line_end(t, t->cursor_row);
-                              if(t->cursor_col < line_end && t->cursor_col < COLS - 1){
-                                  t->cursor_col++;
-                                  redraw_line(focus_win, old_row);
-                                  window_mark_dirty(focus_win);
-                                  did_update = 1;
-                              }
-                          } else if(ev.code == KEY_UP){
-                              // Don't move up past the input boundary row
-                              if(t->cursor_row > t->input_start_row){
-                                  t->cursor_row--;
-                                  redraw_line(focus_win, old_row);
-                                  redraw_line(focus_win, t->cursor_row);
-                                  window_mark_dirty(focus_win);
-                                  did_update = 1;
-                              }
-                          } else if(ev.code == KEY_DOWN){
-                              if(t->cursor_row < ROWS - 1){
-                                  t->cursor_row++;
-                                  redraw_line(focus_win, old_row);
-                                  redraw_line(focus_win, t->cursor_row);
-                                  window_mark_dirty(focus_win);
-                                  did_update = 1;
-                              }
-                          }
-                          // Character Input
-                          else if(ev.code < 128){
-                              char ch = 0;
-                              int is_alpha = 0;
-                              // Alpha ranges: 16-25 (q-p), 30-38 (a-l), 44-50 (z-m)
-                              if((ev.code >= 16 && ev.code <= 25) || (ev.code >= 30 && ev.code <= 38) || (ev.code >= 44 && ev.code <= 50))
-                                  is_alpha = 1;
-
-                              if(is_alpha){
-                                  if(shift_state ^ capslock_state) ch = keymap_shift[ev.code];
-                                  else ch = keymap[ev.code];
-                              } else {
-                                  if(shift_state) ch = keymap_shift[ev.code];
-                                  else ch = keymap[ev.code];
-                              }
-                              
-                              if(ch != 0){
-                                  // printf("key: %d -> %c\n", ev.code, ch);
-                                  
-                                  // Local Echo
-                                  term_putc(focus_win, ch);
-                                  window_mark_dirty(focus_win);  // Mark for immediate display
-                                  did_update = 1;
-                                  
-                                  // Send to Shell
-                                  write(focus_win->term.fd_in, &ch, 1);
-                              }
-                          }
-                      }
+                  // Forward keyboard events to client windows
+                  else if(focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm){
+                      struct sulu_event sev = {
+                          .type = SULU_EV_KEY,
+                          .code = ev.code,
+                          .value = ev.value
+                      };
+                      sulu_event_push(focus_win->shm, &sev);
                   }
               }
           }
-      }
-      
-      // 2. Process Terminals (skip client windows)
-      Window *w = windows;
-      while(w){
-          if(w->type == WIN_TYPE_CLIENT) {
-              w = w->next;
-              continue;
-          }
-          int avail = readavail(w->term.fd_out);
-          if(avail > 0){
-               // printf("shell output: %d bytes\n", avail);
-               char buf[64];
-               if(avail > 64) avail = 64;
-               int r = read(w->term.fd_out, buf, avail);
-               if(r > 0) {
-                   for(int i=0; i<r; i++){
-                       term_putc(w, buf[i]);
-                   }
-                   // Mark where user input starts (after shell output)
-                   w->term.input_start_row = w->term.cursor_row;
-                   w->term.input_start_col = w->term.cursor_col;
-                   // Mark this window as dirty for partial flush
-                   window_mark_dirty(w);
-                   did_update = 1;
-               }
-          }
-          w = w->next;
       }
       
       if(did_update){

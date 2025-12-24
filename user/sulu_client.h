@@ -71,6 +71,7 @@ struct sulu_window_shm {
     int width;
     int height;
     int flags;              // SULU_FLAG_*
+    uint bgcolor;           // Window background color (ARGB)
     
     // Command ring (client -> sulu)
     struct sulu_ring cmd_ring;
@@ -132,6 +133,34 @@ static inline void sulu_blit(struct sulu_window_shm *shm, int x, int y, int w, i
 static inline void sulu_close(struct sulu_window_shm *shm) {
     struct sulu_cmd cmd = { .type = SULU_CMD_CLOSE };
     sulu_cmd_push(shm, &cmd);
+}
+
+// Convenience: Fill a rectangle with color
+static inline void sulu_fill(struct sulu_window_shm *shm, int x1, int y1, int x2, int y2, uint color) {
+    uint *pixels = sulu_pixels(shm);
+    int stride = shm->width;
+    for(int y = y1; y < y2; y++) {
+        for(int x = x1; x < x2; x++) {
+            pixels[y * stride + x] = color;
+        }
+    }
+}
+
+// Check if events are available
+static inline int sulu_event_available(struct sulu_window_shm *shm) {
+    struct sulu_ring *r = &shm->event_ring;
+    return r->head != r->tail;
+}
+
+// Push an event (server-side helper for Sulu)
+static inline int sulu_event_push(struct sulu_window_shm *shm, struct sulu_event *ev) {
+    struct sulu_ring *r = &shm->event_ring;
+    int next = (r->head + 1) % SULU_EVENT_RING_SIZE;
+    if (next == r->tail) return -1; // Full
+    shm->event_buf[r->head] = *ev;
+    __sync_synchronize();
+    r->head = next;
+    return 0;
 }
 
 #endif // _SULU_CLIENT_H_

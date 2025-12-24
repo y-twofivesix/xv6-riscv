@@ -8,7 +8,7 @@
 
 int main(int argc, char *argv[])
 {
-  printf("rect_demo: starting...\\n");
+  printf("rect_demo: starting...\n");
   
   // 1. Allocate shared memory for our window
   // Now supports multi-page SHM (up to 64KB = 16 pages)
@@ -20,21 +20,21 @@ int main(int argc, char *argv[])
   
   int shmid = shmget(shm_key, shm_size);
   if(shmid < 0) {
-    printf("rect_demo: shmget failed\\n");
+    printf("rect_demo: shmget failed\n");
     exit(1);
   }
   
   // 2. Map the shared memory
   struct sulu_window_shm *shm = (struct sulu_window_shm*)shmat(shmid, 0);
   if(shm == (void*)-1) {
-    printf("rect_demo: shmat failed\\n");
+    printf("rect_demo: shmat failed\n");
     exit(1);
   }
   
   // 3. Tell Sulu about our window
   int fd = open("/dev/suluctl", O_WRONLY);
   if(fd < 0) {
-    printf("rect_demo: failed to open suluctl\\n");
+    printf("rect_demo: failed to open suluctl\n");
     exit(1);
   }
   
@@ -73,7 +73,7 @@ int main(int argc, char *argv[])
   write(fd, cmd, n);
   close(fd);
   
-  printf("rect_demo: sent connect request\\n");
+  printf("rect_demo: sent connect request\n");
   sleep(50);  // Give Sulu time to create window
   
   // 4. Get pixel buffer
@@ -112,6 +112,6 @@ int main(int argc, char *argv[])
   sulu_close(shm);
   sleep(10);
   
-  printf("rect_demo: done\\n");
+  printf("rect_demo: done\n");
   exit(0);
 }

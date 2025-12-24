@@ -151,7 +151,8 @@ UPROGS=\
 	$U/_suluctl_demo\
 	$U/_shmtest\
 	$U/_rect_demo\
-	$U/_size_test
+	$U/_size_test\
+	$U/_terminal
 
 .PHONY: fs.img
 fs.img: mkfs/mkfs README INFO $(UPROGS)
