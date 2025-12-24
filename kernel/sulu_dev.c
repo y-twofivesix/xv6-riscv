@@ -16,6 +16,7 @@
 #define SULU_EVENT_CONNECT    1
 #define SULU_EVENT_DISCONNECT 2
 #define SULU_EVENT_DATA       3
+#define SULU_EVENT_RESIZE     4
 
 struct sulu_msg {
     int type;
@@ -86,6 +87,12 @@ sulu_dev_write(int user_dst, uint64 dst, int n, int off)
              int h = extended_cmd[3];
              sulu_queue_event(SULU_EVENT_CONNECT, p->pid, extended_cmd[1], (w << 16) | h);
         }
+    }
+    
+    // Command 2: Resize Window
+    // cmd[0] = 2, cmd[1] = win_id, cmd[2] = new_shmid
+    else if(cmd[0] == 2) {
+        sulu_queue_event(SULU_EVENT_RESIZE, p->pid, cmd[1], cmd[2]);
     }
     
     return n;

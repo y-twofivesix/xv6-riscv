@@ -6,9 +6,9 @@
 #include "spinlock.h"
 #include "proc.h"
 
-#define MAX_SHM 8
+#define MAX_SHM 16
 #define SHM_KEY_FB 0xFB00
-#define MAX_SHM_PAGES 256  // Max pages per SHM segment (1MB max per segment)
+#define MAX_SHM_PAGES 2048 // Max pages per SHM segment (8MB max per segment)
 
 // External from virtio_gpu.c
 extern int gui_active;

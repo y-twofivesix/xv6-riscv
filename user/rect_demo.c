@@ -15,7 +15,7 @@ int main(int argc, char*argv[])
   int height = 480;
   struct sulu_window win;
   
-  if(sulu_init(&win, width, height) < 0) {
+  if(sulu_init(&win, width, height, SULU_FLAG_DOUBLE_BUFFER) < 0) {
     printf("rect_demo: sulu_init failed\n");
     exit(1);
   }
@@ -35,6 +35,22 @@ int main(int argc, char*argv[])
   int rect_w = 80, rect_h = 60;
   
   for(int frame = 0; frame < 20000; frame++) {
+    // Resize every 15000 frames to test
+    if(frame > 0 && frame % 15000 == 0) {
+      if(width == 480) {
+        width = 320; height = 240;
+      } else {
+        width = 480; height = 480;
+      }
+      printf("rect_demo: resizing to %dx%d...\n", width, height);
+      if(sulu_resize(&win, width, height) < 0) {
+        printf("rect_demo: resize failed!\n");
+        break;
+      }
+      // Re-fetch pixels after resize (though win.pixels is updated)
+      pixels = win.pixels;
+    }
+
     // Clear to black
     for(int i = 0; i < width * height; i++)
       pixels[i] = 0xFF000000;
@@ -46,8 +62,9 @@ int main(int argc, char*argv[])
       }
     }
     
-    // Send BLIT command
-    sulu_blit(win.shm, 0, 0, width, height);
+    // Swap buffers (Double Buffering)
+    sulu_swap(&win);
+    pixels = win.pixels; // Point to the NEW back buffer for next frame
     
     // Update position
     x += dx;

@@ -320,7 +320,7 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
   win->y = 100 + (next_win_id * 30) % 300;
   win->w = width;
   win->h = total_height;
-  win->buf = sulu_pixels(shm);  // Use client's pixel buffer
+  win->buf = sulu_front_pixels(shm);  // Use the FRONT buffer for display
   win->next = 0;
   win->type = WIN_TYPE_CLIENT;
   win->client_pid = client_pid;
@@ -330,11 +330,12 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
   printf("sulu: window id=%d shm=%p buf=%p heap=%p\n", 
          win->id, shm, win->buf, sbrk(0));
   
-  // Initialize the SHM header
+  // Link into window list (metadata already set by client in many cases)
   shm->win_id = win->id;
-  shm->width = width;
-  shm->height = height;
-  shm->flags = 0;
+  // If client didn't set width/height, do it now
+  if(shm->width == 0) shm->width = width;
+  if(shm->height == 0) shm->height = height;
+  
   shm->cmd_ring.head = 0;
   shm->cmd_ring.tail = 0;
   shm->cmd_ring.size = SULU_CMD_RING_SIZE;
@@ -518,7 +519,6 @@ main(int argc, char *argv[])
                 composite_dirty_and_flush();
               }
           } else if(msg.type == 2) { // SULU_EVENT_DISCONNECT
-              // printf("sulu: disconnect pid=%d\n", msg.pid);
               // Find and close all windows for this PID
               Window *w = windows;
               while(w) {
@@ -531,6 +531,35 @@ main(int argc, char *argv[])
               // Force full redraw to be safe
               composite(); 
               gpu_flush();
+          } else if(msg.type == 4) { // SULU_EVENT_RESIZE
+              int win_id = msg.val1;
+              int new_shmid = msg.val2;
+              
+              Window *w = windows;
+              while(w) {
+                  if(w->id == win_id) {
+                      struct sulu_window_shm *new_shm = (struct sulu_window_shm*)shmat(new_shmid, 0);
+                      if(new_shm != (void*)-1) {
+                          // Mark old area dirty
+                          window_mark_dirty(w);
+                          
+                          // Detach old
+                          shmdt(w->shmid, w->shm);
+                          
+                          // Update window from new SHM header
+                          w->shmid = new_shmid;
+                          w->shm = new_shm;
+                          w->buf = sulu_pixels(new_shm);
+                          w->w = new_shm->width;
+                          w->h = new_shm->height + TITLE_BAR_HEIGHT;
+                          
+                          // Mark new area dirty
+                          window_mark_dirty(w);
+                      }
+                      break;
+                  }
+                  w = w->next;
+              }
           }
       } 
       
@@ -563,6 +592,15 @@ main(int argc, char *argv[])
                 close_window(w);
                 closed = 1;
                 break; // Window is gone
+              } else if(cmd->type == SULU_CMD_SWAP) {
+                if(w->shm->flags & SULU_FLAG_DOUBLE_BUFFER) {
+                  // Toggle front buffer index
+                  w->shm->front_buf = (w->shm->front_buf == 0) ? 1 : 0;
+                  // Update Sulu's view to the new front buffer
+                  w->buf = sulu_front_pixels(w->shm);
+                  // Mark full window dirty to redraw from new buffer
+                  window_mark_dirty(w);
+                }
               }
               r->tail = (r->tail + 1) % SULU_CMD_RING_SIZE;
             }

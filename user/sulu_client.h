@@ -48,6 +48,10 @@ sulu_connect(int shm_key, int width, int height) {
 #define SULU_CMD_BLIT        1   // Flush dirty region
 #define SULU_CMD_CLOSE       2   // Close window
 #define SULU_CMD_RESIZE      3   // Request resize
+#define SULU_CMD_SWAP        5   // Swap front/back buffers (double buffering)
+
+// Flags (shm->flags)
+#define SULU_FLAG_DOUBLE_BUFFER (1 << 0)
 
 // Event types (sulu -> client)
 #define SULU_EV_NONE         0
@@ -87,6 +91,7 @@ struct sulu_window_shm {
     int width;
     int height;
     int flags;              // SULU_FLAG_*
+    int front_buf;          // Index of front buffer (for double buffering)
     uint bgcolor;           // Window background color (ARGB)
     char title[64];         // Window title (null-terminated)
     
@@ -103,6 +108,48 @@ struct sulu_window_shm {
 };
 
 // ============================================================
+// Ring Buffer Helpers (lock-free single producer/consumer)
+// ============================================================
+
+// Push a command to the ring. Returns 0 on success, -1 if full.
+static inline int sulu_cmd_push(struct sulu_window_shm *shm, struct sulu_cmd *cmd) {
+    struct sulu_ring *r = &shm->cmd_ring;
+    int next = (r->head + 1) % SULU_CMD_RING_SIZE;
+    if (next == r->tail) return -1; // Full
+    shm->cmd_buf[r->head] = *cmd;
+    __sync_synchronize(); // Memory barrier
+    r->head = next;
+    return 0;
+}
+
+// Pop an event from the ring. Returns 0 on success, -1 if empty.
+static inline int sulu_event_pop(struct sulu_window_shm *shm, struct sulu_event *ev) {
+    struct sulu_ring *r = &shm->event_ring;
+    if (r->head == r->tail) return -1; // Empty
+    *ev = shm->event_buf[r->tail];
+    __sync_synchronize(); // Memory barrier
+    r->tail = (r->tail + 1) % SULU_EVENT_RING_SIZE;
+    return 0;
+}
+
+// Convenience: Push a BLIT command
+static inline void sulu_blit(struct sulu_window_shm *shm, int x, int y, int w, int h) {
+    struct sulu_cmd cmd = { .type = SULU_CMD_BLIT, .blit = {x, y, w, h} };
+    sulu_cmd_push(shm, &cmd);
+}
+
+// Convenience: Push a CLOSE command
+static inline void sulu_close(struct sulu_window_shm *shm) {
+    struct sulu_cmd cmd = { .type = SULU_CMD_CLOSE };
+    sulu_cmd_push(shm, &cmd);
+}
+
+// Convenience: Detach shared memory
+static inline void sulu_detach(int shmid, void *shm) {
+    shmdt(shmid, shm);
+}
+
+// ============================================================
 // Client API Functions
 // ============================================================
 
@@ -110,26 +157,53 @@ struct sulu_window_shm {
 // After this, client should: shmat(key) to get sulu_window_shm*
 int sulu_request_window(int width, int height, const char *title);
 
-// Get pointer to pixel buffer within mapped SHM
+// Get pointer to CURRENT BACK BUFFER within mapped SHM
 static inline uint* sulu_pixels(struct sulu_window_shm *shm) {
-    return (uint*)((char*)shm + sizeof(struct sulu_window_shm));
+    uint *base = (uint*)((char*)shm + sizeof(struct sulu_window_shm));
+    if (!(shm->flags & SULU_FLAG_DOUBLE_BUFFER)) return base;
+    
+// Front buffer is what Sulu shows. Back buffer is what client writes to.
+    if (shm->front_buf == 0) {
+        return base + (shm->width * shm->height);
+    } else {
+        return base;
+    }
+}
+
+// Get pointer to FRONT BUFFER (what is currently displayed)
+static inline uint* sulu_front_pixels(struct sulu_window_shm *shm) {
+    uint *base = (uint*)((char*)shm + sizeof(struct sulu_window_shm));
+    if (!(shm->flags & SULU_FLAG_DOUBLE_BUFFER)) return base;
+    
+    if (shm->front_buf == 0) {
+        return base;
+    } else {
+        return base + (shm->width * shm->height);
+    }
 }
 
 // Calculate total SHM size needed for a window of given dimensions
-// Size = header struct + (width * height * 4 bytes per pixel)
-static inline int sulu_shm_size(int width, int height) {
-    return sizeof(struct sulu_window_shm) + (width * height * 4);
+static inline int sulu_shm_size(int width, int height, int flags) {
+    int buf_size = width * height * 4;
+    if (flags & SULU_FLAG_DOUBLE_BUFFER) buf_size *= 2;
+    return sizeof(struct sulu_window_shm) + buf_size;
 }
 
 // Create and attach SHM for a window. Returns pointer to SHM struct, or 0 on failure.
 // Also stores the shmid in *out_shmid for later cleanup with sulu_detach().
-static inline struct sulu_window_shm* sulu_attach(int shm_key, int width, int height, int *out_shmid) {
-    int size = sulu_shm_size(width, height);
+static inline struct sulu_window_shm* sulu_attach(int shm_key, int width, int height, int flags, int *out_shmid) {
+    int size = sulu_shm_size(width, height, flags);
     int shmid = shmget(shm_key, size);
-    if (shmid < 0) return 0;
+    if (shmid < 0) {
+        printf("sulu: shmget failed for key %d size %d\n", shm_key, size);
+        return 0;
+    }
     
     struct sulu_window_shm *shm = (struct sulu_window_shm*)shmat(shmid, 0);
-    if (shm == (void*)-1) return 0;
+    if (shm == (void*)-1) {
+        printf("sulu: shmat failed for shmid %d\n", shmid);
+        return 0;
+    }
     
     if (out_shmid) *out_shmid = shmid;
     return shm;
@@ -151,11 +225,10 @@ struct sulu_window {
 
 // All-in-one window creation: attach SHM + connect to Sulu
 // Returns 0 on success, -1 on failure
-// Usage: struct sulu_window win; if(sulu_init(&win, 640, 480) == 0) { ... }
-static inline int sulu_init(struct sulu_window *win, int width, int height) {
+static inline int sulu_init(struct sulu_window *win, int width, int height, int flags) {
     int shm_key = getpid();  // Use PID as unique key
     
-    win->shm = sulu_attach(shm_key, width, height, &win->shmid);
+    win->shm = sulu_attach(shm_key, width, height, flags, &win->shmid);
     if (!win->shm) return -1;
     
     win->fd = sulu_connect(shm_key, width, height);
@@ -168,8 +241,70 @@ static inline int sulu_init(struct sulu_window *win, int width, int height) {
     // Store dimensions in SHM for Sulu
     win->shm->width = width;
     win->shm->height = height;
+    win->shm->flags = flags;
+    win->shm->front_buf = 0;
     
     return 0;
+}
+
+// Resize an existing window.
+// This allocates a NEW shm segment, notifies Sulu, and updates the 'win' struct.
+static inline int sulu_resize(struct sulu_window *win, int width, int height) {
+    if (!win || win->fd < 0) return -1;
+    
+    // Allocate new SHM (preserve flags)
+    int new_shmid;
+    int new_key = 2000 + (win->fd * 10) + (win->width % 100); // Simple unique key
+    struct sulu_window_shm *new_shm = sulu_attach(new_key, width, height, win->shm->flags, &new_shmid);
+    if (!new_shm) return -1;
+    
+    // Initialize new SHM header
+    new_shm->win_id = win->shm->win_id;
+    new_shm->width = width;
+    new_shm->height = height;
+    new_shm->flags = win->shm->flags;
+    strcpy(new_shm->title, win->shm->title);
+    new_shm->cmd_ring.head = 0;
+    new_shm->cmd_ring.tail = 0;
+    new_shm->event_ring.head = 0;
+    new_shm->event_ring.tail = 0;
+    new_shm->front_buf = 0;
+
+    // Send Resize Command to /dev/sulu
+    // type=2, win_id, new_shmid
+    int cmd[3] = { 2, win->shm->win_id, new_shmid };
+    if (write(win->fd, cmd, sizeof(cmd)) < 0) {
+        // Cleanup new SHM on failure
+        shmdt(new_shmid, (void*)new_shm);
+        return -1;
+    }
+    
+    // Detach old SHM (Sulu will also detach it when it gets the message)
+    shmdt(win->shmid, (void*)win->shm);
+    
+    // Update local window struct
+    win->shm = new_shm;
+    win->pixels = sulu_pixels(new_shm);
+    win->shmid = new_shmid;
+    win->width = width;
+    win->height = height;
+    
+    return 0;
+}
+
+// Send SWAP command to Sulu (Double Buffering)
+static inline void sulu_swap(struct sulu_window *win) {
+    if (!win || !win->shm) return;
+    struct sulu_cmd cmd = { .type = SULU_CMD_SWAP };
+    sulu_cmd_push(win->shm, &cmd);
+    
+    // Update local pixel pointer to point to the NEXT back buffer
+    // (Note: Sulu will update shm->front_buf internally when it receives the command)
+    // For smoothness, we assume the swap will happen.
+    // However, if we write too fast, we might overwrite.
+    // In a real system, Sulu would send an event back or we'd check front_buf.
+    // Here we just update the local pointer for the next frame.
+    win->pixels = sulu_pixels(win->shm); 
 }
 
 // Set the window title (max 63 chars)
@@ -294,48 +429,6 @@ static inline int sulu_draw_text(struct sulu_window_shm *shm, int x, int y, cons
         str++;
     }
     return x - start_x;
-}
-
-// ============================================================
-// Ring Buffer Helpers (lock-free single producer/consumer)
-// ============================================================
-
-// Push a command to the ring. Returns 0 on success, -1 if full.
-static inline int sulu_cmd_push(struct sulu_window_shm *shm, struct sulu_cmd *cmd) {
-    struct sulu_ring *r = &shm->cmd_ring;
-    int next = (r->head + 1) % SULU_CMD_RING_SIZE;
-    if (next == r->tail) return -1; // Full
-    shm->cmd_buf[r->head] = *cmd;
-    __sync_synchronize(); // Memory barrier
-    r->head = next;
-    return 0;
-}
-
-// Pop an event from the ring. Returns 0 on success, -1 if empty.
-static inline int sulu_event_pop(struct sulu_window_shm *shm, struct sulu_event *ev) {
-    struct sulu_ring *r = &shm->event_ring;
-    if (r->head == r->tail) return -1; // Empty
-    *ev = shm->event_buf[r->tail];
-    __sync_synchronize(); // Memory barrier
-    r->tail = (r->tail + 1) % SULU_EVENT_RING_SIZE;
-    return 0;
-}
-
-// Convenience: Push a BLIT command
-static inline void sulu_blit(struct sulu_window_shm *shm, int x, int y, int w, int h) {
-    struct sulu_cmd cmd = { .type = SULU_CMD_BLIT, .blit = {x, y, w, h} };
-    sulu_cmd_push(shm, &cmd);
-}
-
-// Convenience: Push a CLOSE command
-static inline void sulu_close(struct sulu_window_shm *shm) {
-    struct sulu_cmd cmd = { .type = SULU_CMD_CLOSE };
-    sulu_cmd_push(shm, &cmd);
-}
-
-// Convenience: Detach shared memory
-static inline void sulu_detach(int shmid, void *shm) {
-    shmdt(shmid, shm);
 }
 
 // Convenience: Fill a rectangle with color

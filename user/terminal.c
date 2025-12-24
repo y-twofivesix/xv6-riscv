@@ -74,31 +74,21 @@ int shift_state = 0;
 int ctrl_pressed = 0;
 int capslock_state = 0;
 
-// Draw a single character at pixel position
+// Draw a single character at pixel position (with background)
+// Uses the Sulu API for the actual glyph rendering
 void draw_char_at(int px, int py, char ch, uint color) {
-  if (ch < ' ' || ch > '~') return;
-  int index = ch - ' ';
-  for (int y = 0; y < 8; y++) {
-    for (int x = 0; x < 8; x++) {
-      if ((font_8x8[index][y] >> (7 - x)) & 1) {
-        pixels[(py + y) * WIN_WIDTH + (px + x)] = color;
-      } else {
-        pixels[(py + y) * WIN_WIDTH + (px + x)] = TERM_BACK;
-      }
-    }
-  }
+  // First clear the character cell background
+  sulu_fill_rect(shm, px, py, CHAR_W, CHAR_H, TERM_BACK);
+  // Then draw the character using Sulu's font renderer
+  sulu_draw_char(shm, px, py, ch, color);
 }
 
 // Redraw a single line
 void redraw_line(int r) {
   int base_py = PADDING + r * (CHAR_H + LINE_SPACING);
   
-  // Clear line first (full height including spacing)
-  for (int y = 0; y < CHAR_H + LINE_SPACING; y++) {
-    for (int x = 0; x < WIN_WIDTH; x++) {
-      pixels[(base_py + y) * WIN_WIDTH + x] = TERM_BACK;
-    }
-  }
+  // Clear line first (full width, include line spacing)
+  sulu_fill_rect(shm, 0, base_py, WIN_WIDTH, CHAR_H + LINE_SPACING, TERM_BACK);
   
   int px = PADDING;
   for (int c = 0; c < COLS; c++) {
@@ -259,7 +249,7 @@ main(int argc, char *argv[])
   int shmid;
   
   // 1. Create and attach SHM using helper
-  shm = sulu_attach(my_pid, WIN_WIDTH, WIN_HEIGHT, &shmid);
+  shm = sulu_attach(my_pid, WIN_WIDTH, WIN_HEIGHT, 0, &shmid);
   if (!shm) {
     printf("terminal: sulu_attach failed\n");
     exit(1);
