@@ -15,7 +15,7 @@ int main(int argc, char *argv[])
   // 120x120 pixels = 57,600 bytes + 1000 header = ~58KB = 15 pages
   int width = 480;
   int height = 480;
-  int shm_size = sizeof(struct sulu_window_shm) + (width * height * 4);
+  int shm_size = sulu_shm_size(width, height);  // Helper calculates: header + pixels
   int shm_key = getpid();  // Use our PID as unique key
   
   int shmid = shmget(shm_key, shm_size);

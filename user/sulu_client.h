@@ -113,6 +113,12 @@ static inline uint* sulu_pixels(struct sulu_window_shm *shm) {
     return (uint*)((char*)shm + sizeof(struct sulu_window_shm));
 }
 
+// Calculate total SHM size needed for a window of given dimensions
+// Size = header struct + (width * height * 4 bytes per pixel)
+static inline int sulu_shm_size(int width, int height) {
+    return sizeof(struct sulu_window_shm) + (width * height * 4);
+}
+
 // ============================================================
 // Ring Buffer Helpers (lock-free single producer/consumer)
 // ============================================================

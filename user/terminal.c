@@ -257,8 +257,8 @@ main(int argc, char *argv[])
 {
   int my_pid = getpid();
   
-  // Calculate total SHM size needed
-  int total_size = sizeof(struct sulu_window_shm) + WIN_WIDTH * WIN_HEIGHT * 4;
+  // Calculate total SHM size needed using helper
+  int total_size = sulu_shm_size(WIN_WIDTH, WIN_HEIGHT);
   
   // 1. Create shared memory using our PID as key
   int shmid = shmget(my_pid, total_size);
@@ -326,45 +326,12 @@ main(int argc, char *argv[])
   // 6. Set bgcolor in SHM BEFORE connecting (Sulu will read this)
   shm->bgcolor = TERM_BACK;
   
-  // 7. Connect to Sulu
-  int fd = open("/dev/suluctl", O_WRONLY);
-  if (fd < 0) {
-    printf("terminal: cannot open suluctl\n");
+  // 7. Connect to Sulu using the new /dev/sulu binary API
+  int sulu_fd = sulu_connect(my_pid, WIN_WIDTH, WIN_HEIGHT);
+  if (sulu_fd < 0) {
+    printf("terminal: sulu_connect failed\n");
     exit(1);
   }
-  
-  // Build connect command: "connect <shm_key> <width> <height>"
-  char cmd[64];
-  char *p = cmd;
-  
-  // "connect "
-  *p++ = 'c'; *p++ = 'o'; *p++ = 'n'; *p++ = 'n';
-  *p++ = 'e'; *p++ = 'c'; *p++ = 't'; *p++ = ' ';
-  
-  // shm_key (our pid)
-  char tmp[16];
-  int n = 0;
-  int val = my_pid;
-  if (val == 0) tmp[n++] = '0';
-  else { while (val > 0) { tmp[n++] = '0' + (val % 10); val /= 10; } }
-  while (n > 0) *p++ = tmp[--n];
-  *p++ = ' ';
-  
-  // width
-  val = WIN_WIDTH;
-  n = 0;
-  while (val > 0) { tmp[n++] = '0' + (val % 10); val /= 10; }
-  while (n > 0) *p++ = tmp[--n];
-  *p++ = ' ';
-  
-  // height  
-  val = WIN_HEIGHT;
-  n = 0;
-  while (val > 0) { tmp[n++] = '0' + (val % 10); val /= 10; }
-  while (n > 0) *p++ = tmp[--n];
-  
-  write(fd, cmd, p - cmd);
-  close(fd);
   
   sleep(5);  // Give Sulu time to create window
   
