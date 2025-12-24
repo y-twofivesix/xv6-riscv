@@ -33,6 +33,7 @@ int gpu_flush(void);
 int gpu_flush_rect(int x, int y, int w, int h);
 int suluctl_poll(void);
 int suluctl_get_request(int *pid, int *shm_key, int *width, int *height);
+int exists(int);
 
 
 // ulib.c

@@ -239,6 +239,33 @@ void window_mark_dirty(Window *w) {
     mark_dirty(w->x, w->y, w->w, w->h);
 }
 
+// Close and free a window
+void close_window(Window *w) {
+    if(!w) return;
+
+    // 1. Mark dirty (so area gets redrawn)
+    mark_dirty(w->x, w->y, w->w, w->h);
+
+    // 2. Unlink from list
+    if(windows == w) {
+        windows = w->next;
+    } else {
+        Window *curr = windows;
+        while(curr && curr->next != w) curr = curr->next;
+        if(curr) curr->next = w->next;
+    }
+
+    // 3. Handle Focus
+    if(focus_win == w) {
+        focus_win = windows; // Focus top window
+        if(focus_win) window_mark_dirty(focus_win); // Update its title bar
+    }
+
+    // 4. Cleanup
+    // if(w->shm) shmdt(w->shm); // TODO: Implement shmdt in kernel
+    free(w);
+}
+
 // Spawn a client window (for external programs using Sulu API)
 Window*
 spawn_client_window(int client_pid, int shm_key, int width, int height)
@@ -444,8 +471,18 @@ main(int argc, char *argv[])
       {
         Window *w = windows;
         while(w) {
+          Window *next_w = w->next; // Save next pointer in case w is freed
           if(w->type == WIN_TYPE_CLIENT && w->shm) {
+            // Check if client is still alive
+            if(exists(w->client_pid) == 0) {
+                 printf("sulu: client %d died, closing window %d\n", w->client_pid, w->id);
+                 close_window(w);
+                 w = next_w;
+                 continue;
+            }
+
             struct sulu_ring *r = &w->shm->cmd_ring;
+            int closed = 0;
             while(r->head != r->tail) {
               struct sulu_cmd *cmd = &w->shm->cmd_buf[r->tail];
               if(cmd->type == SULU_CMD_BLIT) {
@@ -453,12 +490,18 @@ main(int argc, char *argv[])
                 window_mark_dirty(w);
                 composite_dirty_and_flush();
               } else if(cmd->type == SULU_CMD_CLOSE) {
-                // TODO: Close window
+                close_window(w);
+                closed = 1;
+                break; // Window is gone, stop processing commands
               }
               r->tail = (r->tail + 1) % SULU_CMD_RING_SIZE;
             }
+            if(closed) {
+                w = next_w;
+                continue;
+            }
           }
-          w = w->next;
+          w = next_w;
         }
       }
 

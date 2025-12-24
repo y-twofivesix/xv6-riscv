@@ -30,3 +30,4 @@
 #define SYS_suluctl_poll 29
 #define SYS_gpu_flush_rect 30
 #define SYS_suluctl_get_request 31
+#define SYS_exists 32

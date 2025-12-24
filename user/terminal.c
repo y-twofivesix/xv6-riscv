@@ -366,7 +366,7 @@ main(int argc, char *argv[])
   write(fd, cmd, p - cmd);
   close(fd);
   
-  sleep(50);  // Give Sulu time to create window
+  sleep(5);  // Give Sulu time to create window
   
   // 7. Initial render - draw cursor at position 0,0
   redraw_line(0);

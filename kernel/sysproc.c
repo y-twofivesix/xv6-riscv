@@ -12,6 +12,7 @@
 
 // External from virtio_gpu.c
 extern int gui_active;
+extern struct proc proc[NPROC];
 
 struct {
   struct spinlock lock;
@@ -100,6 +101,25 @@ sys_kill(void)
 
   argint(0, &pid);
   return kill(pid);
+}
+
+uint64
+sys_exists(void)
+{
+  int pid;
+  struct proc *p;
+
+  argint(0, &pid);
+  
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->pid == pid && p->state != UNUSED){
+      release(&p->lock);
+      return 1;
+    }
+    release(&p->lock);
+  }
+  return 0;
 }
 
 // return how many clock tick interrupts have occurred

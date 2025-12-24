@@ -13,8 +13,8 @@ int main(int argc, char *argv[])
   // 1. Allocate shared memory for our window
   // Now supports multi-page SHM (up to 64KB = 16 pages)
   // 120x120 pixels = 57,600 bytes + 1000 header = ~58KB = 15 pages
-  int width = 120;
-  int height = 120;
+  int width = 480;
+  int height = 480;
   int shm_size = sizeof(struct sulu_window_shm) + (width * height * 4);
   int shm_key = getpid();  // Use our PID as unique key
   
@@ -74,7 +74,7 @@ int main(int argc, char *argv[])
   close(fd);
   
   printf("rect_demo: sent connect request\n");
-  sleep(50);  // Give Sulu time to create window
+  sleep(5);  // Give Sulu time to create window
   
   // 4. Get pixel buffer
   uint *pixels = sulu_pixels(shm);
@@ -100,17 +100,17 @@ int main(int argc, char *argv[])
     sulu_blit(shm, 0, 0, width, height);
     
     // Update position
-    x += dx;
-    y += dy;
+    x += 2*dx;
+    y += 2*dy;
     if(x <= 0 || x + rect_w >= width) dx = -dx;
     if(y <= 0 || y + rect_h >= height) dy = -dy;
-    
-    sleep(5);  // ~10 FPS
+
+    sleep(1);
   }
   
   // 6. Close window
+  sleep(5);
   sulu_close(shm);
-  sleep(10);
   
   printf("rect_demo: done\n");
   exit(0);
