@@ -43,6 +43,10 @@ sulu_connect(int shm_key, int width, int height) {
 #define SULU_CMD_RING_SIZE   16
 #define SULU_EVENT_RING_SIZE 32
 
+// Timing Constants
+#define SULU_DEFAULT_FPS 60
+#define SULU_DEFAULT_FRAME_USEC (1000000 / SULU_DEFAULT_FPS) // ~33.3ms
+
 // Command types (client -> sulu)
 #define SULU_CMD_NONE        0
 #define SULU_CMD_BLIT        1   // Flush dirty region

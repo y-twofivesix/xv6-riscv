@@ -345,7 +345,7 @@ main()
     if(pid > 0){
       wait(0);
     }
-    sleep(20);
+    sleep(200);
     rand_next += 1;
   }
 }

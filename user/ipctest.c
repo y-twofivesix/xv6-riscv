@@ -36,7 +36,7 @@ main(int argc, char *argv[])
     }
     
     // Sleep to avoid racing parent's printf
-    sleep(10);
+    sleep(100);
 
     printf("Child: received '%s' from PID %d\n", buf, sender);
 
@@ -49,7 +49,7 @@ main(int argc, char *argv[])
     exit(0);
   } else {
     // Parent
-    sleep(10); // Give child time to start and block on recv
+    sleep(100); // Give child time to start and block on recv
     printf("Parent: sending 'ping' to child %d...\n", pid);
     if(send(pid, "ping", 5) < 0){
       printf("Parent: send failed\n");

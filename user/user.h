@@ -1,3 +1,5 @@
+#pragma once
+
 #define SHM_FB 0xFB00
 struct stat;
 
@@ -24,6 +26,15 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+void usleep(uint64);
+
+static inline uint64
+rdtime(void)
+{
+  uint64 x;
+  asm volatile("csrr %0, time" : "=r" (x) );
+  return x;
+}
 int pwd(void);
 int send(int, char*, int);
 int recv(int*, char*, int);

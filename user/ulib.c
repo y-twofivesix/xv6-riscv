@@ -215,3 +215,19 @@ memcpy(void *dst, const void *src, uint n)
 {
   return memmove(dst, src, n);
 }
+
+void
+usleep(uint64 usec)
+{
+  uint64 start = rdtime();
+  uint64 cycles = usec * 10; // 10MHz clock = 10 cycles per microsecond
+  
+  // If sleep is >= 1 tick (10ms), use kernel sleep to yield CPU
+  if(usec >= 10000) {
+    sleep(usec / 10000);
+  }
+  
+  // Busy wait for the remaining time to ensure microsecond precision
+  while(rdtime() - start < cycles)
+    ;
+}

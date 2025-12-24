@@ -8,7 +8,7 @@ int main(int argc, char *argv[])
   
   // Suspend
   printf("1. Suspending Sulu...\n");
-  sleep(10);
+  sleep(100);
   int fd = open("/dev/suluctl", O_WRONLY);
   if(fd >= 0) {
       write(fd, "suspend", 7);
@@ -16,7 +16,7 @@ int main(int argc, char *argv[])
   }
   
   printf("2. Sulu suspended. Waiting 5 seconds...\n");
-  sleep(50);
+  sleep(500);
   
   // Resume
   printf("3. Resuming Sulu...\n");

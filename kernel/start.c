@@ -62,5 +62,6 @@ timerinit()
   w_mcounteren(r_mcounteren() | 2);
   
   // ask for the very first timer interrupt.
-  w_stimecmp(r_time() + 1000000);
+  // 100000 is about 1/100th of a second (10ms).
+  w_stimecmp(r_time() + 100000);
 }

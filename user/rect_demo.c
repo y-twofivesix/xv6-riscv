@@ -24,7 +24,7 @@ int main(int argc, char*argv[])
   // 2. Set window title
   sulu_set_title(win.shm, "Bouncing Box Demo");
   
-  sleep(1);  // Give Sulu time to create window
+  sleep(10);  // Give Sulu time to create window
   
   // 3. Use win.pixels directly from the struct
   
@@ -63,21 +63,19 @@ int main(int argc, char*argv[])
     if(x - radius <= 0 || x + radius >= width) dx = -dx;
     if(y - radius <= 0 || y + radius >= height) dy = -dy;
 
-    sleep(1);
-
-    // Yield to allow Sulu to composite immediately
-    yield();
+    // Synchronized with Sulu's frame rate
+    usleep(SULU_DEFAULT_FRAME_USEC);
   }
   
   // 6. Close window
-  sleep(5);
+  sleep(50);
   printf("rect_demo: closing window...\n");
   sulu_close(win.shm);
   
   // Note: We don't call sulu_detach here - Sulu will clean up the SHM
   // when it processes our SULU_CMD_CLOSE. Calling shmdt() here would
   // race with Sulu still reading from the SHM buffer.
-  sleep(1);  // Give Sulu time to process close
+  sleep(10);  // Give Sulu time to process close
   
   printf("rect_demo: done\n");
   exit(0);

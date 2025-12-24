@@ -317,7 +317,7 @@ main(int argc, char *argv[])
   // Set window title
   sulu_set_title(shm, "Terminal");
   
-  sleep(5);  // Give Sulu time to create window
+  sleep(50);  // Give Sulu time to create window
   
   // 7. Initial render - draw cursor at position 0,0
   redraw_line(0);

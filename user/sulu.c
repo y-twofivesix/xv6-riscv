@@ -77,9 +77,7 @@ Window *drag_win = 0;
 int drag_off_x, drag_off_y;
 Window *focus_win = 0;
 
-// Rate limiting for high-frequency updates (drag, animations)
-static int frame_counter = 0;
-#define FRAME_RATE_LIMIT 1  // flush every Nth event
+#define SULU_FRAME_CYCLES (10000000 / SULU_DEFAULT_FPS)
 #define INPUT_DRAIN_LIMIT 20 // Max input events to process per loop
 #define CLIENT_CMD_LIMIT  1 // Max client commands to process per loop per window
 
@@ -285,8 +283,7 @@ void cursor_move(int new_x, int new_y) {
     // Mark new position dirty
     mark_dirty(new_x, new_y, 10, 10);
     
-    // Composite and flush
-    composite_dirty_and_flush();
+    // Composite and flush removed (now centralized in main loop)
 }
 
 // Mark a window's bounds as dirty
@@ -538,6 +535,7 @@ main(int argc, char *argv[])
 
 
   while(1){
+      uint64 loop_start = rdtime();
       int did_work = 0;
       
       // 1. Process Window System Events (Connect/Disconnect)
@@ -555,7 +553,6 @@ main(int argc, char *argv[])
               Window *new_win = spawn_client_window(pid, key, w, h);
               if(new_win) {
                 window_mark_dirty(new_win);
-                composite_dirty_and_flush();
               }
           } else if(msg.type == 2) { // SULU_EVENT_DISCONNECT
               // Find and close all windows for this PID
@@ -667,7 +664,7 @@ main(int argc, char *argv[])
             gpu_flush();
           }
         }
-        sleep(1);  // sleep for 10 ticks (approx 1 second)
+        sleep(10);  // sleep for 100 ticks (approx 1 second)
         continue;
       }
       
@@ -699,10 +696,7 @@ main(int argc, char *argv[])
                       cursor_rect.y = mouse_y > SCREEN_H - 10 ? SCREEN_H - 10 : (mouse_y < 0 ? 0 : mouse_y);
                       mark_dirty(cursor_rect.x, cursor_rect.y, 10, 10);
                       // Rate-limited composite of dirty regions
-                      if(++frame_counter >= FRAME_RATE_LIMIT) {
-                          frame_counter = 0;
-                          composite_dirty_and_flush();
-                      }
+                      // Dragging window - mark regions as dirty for the global frame flush
                   } else {
                       // Just cursor movement - use efficient dirty region update
                       if(prev_mouse_x != mouse_x || prev_mouse_y != mouse_y){
@@ -774,6 +768,12 @@ main(int argc, char *argv[])
       if(did_work){
           // Use dirty region compositing instead of full screen
           composite_dirty_and_flush();
+          
+          // Cap frame rate
+          uint64 elapsed = rdtime() - loop_start;
+          if(elapsed < SULU_FRAME_CYCLES) {
+            usleep((SULU_FRAME_CYCLES - elapsed) / 10);
+          }
       }
       
       // Yield CPU if idle to allow clients to run

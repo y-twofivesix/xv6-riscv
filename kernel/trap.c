@@ -27,6 +27,12 @@ void
 trapinithart(void)
 {
   w_stvec((uint64)kernelvec);
+  
+  // enable supervisor-mode timer interrupts.
+  w_sie(r_sie() | SIE_STIE);
+  
+  // allow user-mode to use stimecmp and time.
+  w_scounteren(r_scounteren() | 2);
 }
 
 //
@@ -171,9 +177,9 @@ clockintr()
   }
 
   // ask for the next timer interrupt. this also clears
-  // the interrupt request. 1000000 is about a tenth
-  // of a second.
-  w_stimecmp(r_time() + 1000000);
+  // the interrupt request. 100000 is about 1/100th
+  // of a second (10ms).
+  w_stimecmp(r_time() + 100000);
 }
 
 // check if it's an external interrupt or software interrupt,
