@@ -1004,18 +1004,13 @@ main(int argc, char *argv[])
                           };
                           sulu_event_push(focus_win->shm, &sev);
                       }
-                  }
-                  // Keyboard State
-                  if(ev.code == KEY_LEFTSHIFT || ev.code == KEY_RIGHTSHIFT){
+                  } else if(ev.code == KEY_LEFTSHIFT || ev.code == KEY_RIGHTSHIFT){
                       shift_state = (ev.value == 1);
                   } else if(ev.code == KEY_LEFTCTRL || ev.code == KEY_RIGHTCTRL){
                       ctrl_pressed = (ev.value == 1);
                   } else if(ev.code == KEY_CAPSLOCK){
                       if(ev.value == 1) capslock_state = !capslock_state;
-                  }
-                  // Hotkeys
-                  // Hotkeys
-                  if(ev.code == KEY_E && ev.value == 1 && ctrl_pressed){
+                  } else if(ev.code == KEY_E && ev.value == 1 && ctrl_pressed){
                       // Ctrl+E -> Suspend
                       suspended = 1;
                       printf("sulu: suspended\n");

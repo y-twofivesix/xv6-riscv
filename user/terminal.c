@@ -389,8 +389,8 @@ main(int argc, char *argv[])
             sulu_resize(&win, rw, rh);
         }
         // Update terminal dimensions
-        g_cols = win.width / 8;
-        g_rows = win.height / 8;
+        g_cols = (win.width - 2 * PADDING) / CHAR_W;
+        g_rows = (win.height - 2 * PADDING) / (CHAR_H + LINE_SPACING);
 
         // Redraw all content to the new buffer
         for(int i = 0; i < g_rows; i++) {
@@ -403,8 +403,9 @@ main(int argc, char *argv[])
       if (ev.type == SULU_EV_KEY && ev.value == 1) {
         int code = ev.code;
 
-        // Scroll to bottom on any keypress if scrolled up
-        if (term.scroll_offset > 0) {
+        // Scroll to bottom on any keyboard keypress if scrolled up
+        // Exclude mouse buttons (codes >= 0x110)
+        if (term.scroll_offset > 0 && code < 0x110) {
           term.scroll_offset = 0;
           redraw_all();
           sulu_blit(shm, 0, 0, WIN_W, WIN_H);
