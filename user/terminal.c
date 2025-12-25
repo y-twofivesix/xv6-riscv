@@ -538,6 +538,16 @@ main(int argc, char *argv[])
         }
         
         // Handle arrow keys - Send ANSI escape sequences to shell
+        if (code == KEY_UP) {
+          char buf[3] = {'\033', '[', 'A'};
+          write(shell_fd_in, buf, 3);
+          continue;
+        }
+        if (code == KEY_DOWN) {
+          char buf[3] = {'\033', '[', 'B'};
+          write(shell_fd_in, buf, 3);
+          continue;
+        }
         if (code == KEY_LEFT) {
           char buf[3] = {'\033', '[', 'D'};
           write(shell_fd_in, buf, 3);

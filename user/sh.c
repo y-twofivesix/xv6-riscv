@@ -166,24 +166,154 @@ getpwd(char *)
   pwd();
 }
 
-int
-getcmd(char
-   *buf, int nbuf)
-{
+// Command history
+#define HIST_SIZE 16
+#define HIST_LEN  100
+static char history[HIST_SIZE][HIST_LEN];
+static int hist_count = 0;  // Total commands stored
+static int hist_start = 0;  // Oldest entry index (circular)
 
+void
+add_history(char *cmd)
+{
+  // Strip trailing newline for storage
+  int len = strlen(cmd);
+  if(len > 0 && cmd[len-1] == '\n') len--;
+  if(len == 0) return;  // Don't store empty commands
+  
+  // Don't store duplicates of the last command
+  if(hist_count > 0){
+    int last = (hist_start + hist_count - 1) % HIST_SIZE;
+    if(strlen(history[last]) == len && memcmp(history[last], cmd, len) == 0)
+      return;
+  }
+  
+  // Add to circular buffer
+  int idx = (hist_start + hist_count) % HIST_SIZE;
+  if(hist_count < HIST_SIZE){
+    hist_count++;
+  } else {
+    hist_start = (hist_start + 1) % HIST_SIZE;
+  }
+  
+  if(len >= HIST_LEN) len = HIST_LEN - 1;
+  memmove(history[idx], cmd, len);
+  history[idx][len] = '\0';
+}
+
+int
+getcmd(char *buf, int nbuf)
+{
   char path[MAXPATH];
   getpwd(path);
 
   char promptstr[MAXPATH];
   sprintf(promptstr,"\033[37m< %s >\033[m ", path);
-  write(2, promptstr, strlen(promptstr));
-
-  memset(buf, 0, nbuf);
-  readline(buf, nbuf);  // Use readline for interactive editing
-  if(buf[0] == 0) // EOF
-    return -1;
-  return 0;
   
+  // History navigation state
+  int hist_pos = hist_count;  // Start past the end (new command)
+  char saved_line[100];       // Save current line when navigating
+  saved_line[0] = '\0';
+  int saved = 0;
+  
+  memset(buf, 0, nbuf);
+  
+  while(1){
+    write(2, promptstr, strlen(promptstr));
+    
+    // Use simple character-by-character input for history support
+    int n = 0, pos = 0;
+    int esc_state = 0;
+    
+    while(1){
+      char c;
+      if(read(0, &c, 1) < 1){
+        if(n == 0) return -1;  // EOF
+        break;
+      }
+      
+      if(esc_state == 0){
+        if(c == '\033'){
+          esc_state = 1;
+          continue;
+        }
+        if(c == '\b' || c == 0x7f){
+          if(pos > 0){
+            for(int j = pos - 1; j < n - 1; j++) buf[j] = buf[j+1];
+            pos--; n--; buf[n] = '\0';
+            printf("\b \b");
+            if(n > pos){
+              printf("%s ", &buf[pos]);
+              for(int j = 0; j <= n - pos; j++) printf("\b");
+            }
+          }
+          continue;
+        }
+        if(c == '\n' || c == '\r'){
+          buf[n] = '\n'; n++;
+          break;
+        }
+        if(n + 1 < nbuf){
+          for(int j = n; j > pos; j--) buf[j] = buf[j-1];
+          buf[pos] = c; pos++; n++; buf[n] = '\0';
+          if(pos < n){
+            printf("%s", &buf[pos]);
+            for(int j = 0; j < n - pos; j++) printf("\033[D");
+          }
+        }
+      } else if(esc_state == 1){
+        if(c == '[') esc_state = 2;
+        else esc_state = 0;
+      } else if(esc_state == 2){
+        if(c == 'A'){  // Up arrow - older history
+          if(hist_pos > 0){
+            if(hist_pos == hist_count && !saved){
+              // Save current line before navigating
+              memmove(saved_line, buf, n);
+              saved_line[n] = '\0';
+              saved = 1;
+            }
+            hist_pos--;
+            // Clear current line: move to start, overwrite with spaces, move back
+            for(int i = 0; i < pos; i++) printf("\b");
+            for(int i = 0; i < n; i++) printf(" ");
+            for(int i = 0; i < n; i++) printf("\b");
+            // Show history entry
+            int idx = (hist_start + hist_pos) % HIST_SIZE;
+            strcpy(buf, history[idx]);
+            n = pos = strlen(buf);
+            printf("%s", buf);
+          }
+        } else if(c == 'B'){  // Down arrow - newer history
+          if(hist_pos < hist_count){
+            hist_pos++;
+            // Clear current line
+            for(int i = 0; i < pos; i++) printf("\b");
+            for(int i = 0; i < n; i++) printf(" ");
+            for(int i = 0; i < n; i++) printf("\b");
+            // Show new content
+            if(hist_pos == hist_count){
+              strcpy(buf, saved_line);
+            } else {
+              int idx = (hist_start + hist_pos) % HIST_SIZE;
+              strcpy(buf, history[idx]);
+            }
+            n = pos = strlen(buf);
+            printf("%s", buf);
+          }
+        } else if(c == 'C'){  // Right arrow
+          if(pos < n){ pos++; printf("\033[C"); }
+        } else if(c == 'D'){  // Left arrow
+          if(pos > 0){ pos--; printf("\033[D"); }
+        }
+        esc_state = 0;
+      }
+    }
+    
+    buf[n] = '\0';
+    if(buf[0] == 0) return -1;
+    return 0;
+  }
 }
 
 int
@@ -203,7 +333,8 @@ main(void)
   // Read and run input commands.
   while(getcmd(buf, sizeof(buf)) >= 0)
   {
-
+    add_history(buf);  // Store command in history
+    
     if(buf[0] == 'c' && buf[1] == 'd' && buf[2] == ' ')
     {
       // Chdir must be called by the parent, not the child.
