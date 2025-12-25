@@ -137,6 +137,7 @@ main(int argc, char *argv[])
   }
   
   shm = win.shm;
+  sulu_set_title(shm, "Processes");
   
   refresh_procs();
   render();

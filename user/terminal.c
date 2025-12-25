@@ -446,8 +446,10 @@ main(int argc, char *argv[])
 
       if (ev.type == SULU_EV_MAXIMIZE) {
         if(ev.value) { // Maximize
-            // Request full screen
-            sulu_resize(&win, SULU_SCREEN_W, SULU_SCREEN_H - SULU_TITLE_BAR_HEIGHT);
+            // Request full screen (use WM provided dims if avail)
+            int mw = (ev.x > 0) ? ev.x : SULU_SCREEN_W;
+            int mh = (ev.y > 0) ? ev.y : SULU_SCREEN_H - SULU_TITLE_BAR_HEIGHT;
+            sulu_resize(&win, mw, mh);
         } else { // Restore
             // Use dimensions provided in event x/y if available, else use default
             int rw = (ev.x > 0) ? ev.x : 480;

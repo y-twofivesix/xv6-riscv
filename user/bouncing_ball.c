@@ -50,7 +50,8 @@ int main(int argc, char*argv[])
       if(ev.type == SULU_EV_CLOSE) exit(0);
       if(ev.type == SULU_EV_MAXIMIZE) {
         if(ev.value) {
-            width = SULU_SCREEN_W; height = SULU_SCREEN_H - SULU_TITLE_BAR_HEIGHT;
+            width = (ev.x > 0) ? ev.x : SULU_SCREEN_W;
+            height = (ev.y > 0) ? ev.y : SULU_SCREEN_H - SULU_TITLE_BAR_HEIGHT;
         } else {
             width = (ev.x > 0) ? ev.x : 400;
             height = (ev.y > 0) ? ev.y : 300;

@@ -21,12 +21,27 @@
 #define MAX_BTN_SIZE 14
 #define MAX_BTN_NORMAL (uint)0xFF00AA00
 #define MAX_BTN_HOVER (uint)0xFF00FF00
+#define MIN_BTN_SIZE 14
+#define MIN_BTN_NORMAL (uint)0xFFCCAA00
+#define MIN_BTN_HOVER (uint)0xFFFFFF00
 
 #define ENABLE_SHADOWS 1
 #define ENABLE_OCCLUSION_CULLING 1
 #define SHADOW_OFFSET 6
 #define CURSOR_SHADOW_OFFSET 3
 #define SHADOW_COLOR (uint)0xFF04081F  // Deep darkened color
+#define FULLSCREEN_OVER_SYS_BAR 1
+
+// System Bar
+#define BAR_HEIGHT 30
+#define BAR_BG_COLOR (uint)0x55040920
+#define BAR_BTN_WIDTH 120
+#define BAR_BTN_HEIGHT 22
+#define BAR_BTN_MARGIN 5
+#define BAR_BTN_ACTIVE (uint)0xFF00FFCB
+#define BAR_BTN_INACTIVE (uint)0xFF120A8F
+#define BAR_BTN_TEXT_ACTIVE (uint)0xFF000000
+#define BAR_BTN_TEXT_INACTIVE (uint)0xFFDDDDDD
 
 // Input Event Codes
 #define EV_ABS 0x03
@@ -84,12 +99,27 @@ typedef struct Window {
 
   // Maximization state
   int is_maximized;
+  int is_minimized;
   int old_x, old_y, old_w, old_h;
 } Window;
+
+// Widget Infrastructure
+typedef struct Widget {
+  int x, y, w, h;
+  int type;
+} Widget;
+
+// Rectangle helper
+typedef struct {
+    int x, y, w, h;
+} Rect;
+
+#define WIDGET_TYPE_SYSBAR 1
 
 // Globals
 uint *fb;
 Window *windows = 0;
+Widget sysbar; // The system bar widget
 int next_win_id = 1;
 int mouse_x = SCREEN_W / 2;
 int mouse_y = SCREEN_H / 2;
@@ -103,6 +133,7 @@ Window *focus_win = 0;
 #define CLIENT_CMD_LIMIT  1 // Max client commands to process per loop per window
 
 Window* find_window_at(int x, int y);
+void draw_system_bar(Rect *clip);
 
 // ============================================================================
 // Cursor Bitmaps (10x10)
@@ -138,9 +169,6 @@ static uint8 cursor_ibeam[100] = {
 // ============================================================================
 
 // Rectangle helper
-typedef struct {
-    int x, y, w, h;
-} Rect;
 
 // Cursor state (highest z-index, always on top)
 static Rect cursor_rect = {640, 400, 10, 10};
@@ -193,7 +221,8 @@ void composite_region(Rect *r) {
     // (Starting from front of the list, assuming windows[0] is top)
     Window *oc_curr = windows;
     while(oc_curr) {
-        if(oc_curr->x <= rx && oc_curr->y <= ry &&
+        if(!oc_curr->is_minimized && 
+           oc_curr->x <= rx && oc_curr->y <= ry &&
            oc_curr->x + oc_curr->w >= rx2 && oc_curr->y + oc_curr->h >= ry2) {
             top_opaque = oc_curr;
             break; 
@@ -218,12 +247,24 @@ void composite_region(Rect *r) {
     // RE-EVALUATING: If windows list is front-to-back, we need to reverse it for Painter's Algorithm.
     // Let's assume list is back-to-front for now based on previous behavior.
     
+    // 2.5 Draw System Bar (Order depends on FULLSCREEN macro)
+#if FULLSCREEN_OVER_SYS_BAR
+    // Draw bar BEFORE windows so windows can cover it
+    draw_system_bar(r);
+#endif
+
     Window *w = windows;
     int skip = (top_opaque != 0); // If we found an occluder, skip until we hit it
     while (w) {
         if(skip) {
             if(w == top_opaque) skip = 0;
             else { w = w->next; continue; }
+        }
+        
+        // Skip minimized windows
+        if(w->is_minimized) {
+            w = w->next;
+            continue;
         }
 
         // Check if window intersects region
@@ -277,6 +318,9 @@ void composite_region(Rect *r) {
                         // Maximize button (to the left of close)
                         int max_x = close_x - MAX_BTN_SIZE - 4;
                         int max_y = close_y;
+                        // Minimize button (to the left of maximize)
+                        int min_x = max_x - MIN_BTN_SIZE - 4;
+                        int min_y = close_y;
 
                         if (x >= close_x && x < close_x + CLOSE_BTN_SIZE &&
                             y >= close_y && y < close_y + CLOSE_BTN_SIZE) {
@@ -289,6 +333,12 @@ void composite_region(Rect *r) {
                             int is_hover = (mouse_x >= max_x && mouse_x < max_x + MAX_BTN_SIZE &&
                                             mouse_y >= max_y && mouse_y < max_y + MAX_BTN_SIZE);
                             fb[y * SCREEN_W + x] = is_hover ? MAX_BTN_HOVER : MAX_BTN_NORMAL;
+                            continue;
+                        } else if (x >= min_x && x < min_x + MIN_BTN_SIZE &&
+                                   y >= min_y && y < min_y + MIN_BTN_SIZE) {
+                            int is_hover = (mouse_x >= min_x && mouse_x < min_x + MIN_BTN_SIZE &&
+                                            mouse_y >= min_y && mouse_y < min_y + MIN_BTN_SIZE);
+                            fb[y * SCREEN_W + x] = is_hover ? MIN_BTN_HOVER : MIN_BTN_NORMAL;
                             continue;
                         }
 
@@ -327,7 +377,7 @@ void composite_region(Rect *r) {
                             info[n++] = '0' + pid % 10;
                             info[n] = 0;
                             
-                            int info_x = w->w - (n * 8) - 42;  // Shifted left to clear close and maximize buttons
+                            int info_x = w->w - (n * 8) - 60;  // Shifted left to clear close, max, and min buttons
                             int info_char_idx = buf_x - info_x;
                             if(info_char_idx >= 0 && info_char_idx < n * 8) {
                                 int char_num = info_char_idx / 8;
@@ -366,6 +416,11 @@ void composite_region(Rect *r) {
         w = w->next;
     }
     
+    // 2.5 Draw System Bar
+#if !FULLSCREEN_OVER_SYS_BAR
+    draw_system_bar(r);
+#endif
+
         // 3. Draw cursor last (highest z-index)
         Window *hit = find_window_at(cursor_rect.x, cursor_rect.y);
         uint8 *bitmap = cursor_arrow;
@@ -386,21 +441,32 @@ void composite_region(Rect *r) {
                 }
             }
         }
+        
+        // Visual cursor position (Hotspot adjustment)
+        int cx = cursor_rect.x;
+        int cy = cursor_rect.y;
+        
+        if(bitmap == cursor_ibeam) {
+            cx -= 4;
+            cy -= 4;
+        }
 
         int extra = ENABLE_SHADOWS ? CURSOR_SHADOW_OFFSET : 0;
-        if (!(cursor_rect.x + 10 + extra <= rx || rx2 <= cursor_rect.x ||
-              cursor_rect.y + 10 + extra <= ry || ry2 <= cursor_rect.y)) {
+        
+        // use 20 for bounds check safety due to larger dirty rect
+        if (!(cx + 10 + extra <= rx || rx2 <= cx ||
+              cy + 10 + extra <= ry || ry2 <= cy)) {
             
             // Render cursor shadow first
 #if ENABLE_SHADOWS
-            int sx1 = (rx > cursor_rect.x + CURSOR_SHADOW_OFFSET) ? rx : cursor_rect.x + CURSOR_SHADOW_OFFSET;
-            int sy1 = (ry > cursor_rect.y + CURSOR_SHADOW_OFFSET) ? ry : cursor_rect.y + CURSOR_SHADOW_OFFSET;
-            int sx2 = (rx2 < cursor_rect.x + 10 + CURSOR_SHADOW_OFFSET) ? rx2 : cursor_rect.x + 10 + CURSOR_SHADOW_OFFSET;
-            int sy2 = (ry2 < cursor_rect.y + 10 + CURSOR_SHADOW_OFFSET) ? ry2 : cursor_rect.y + 10 + CURSOR_SHADOW_OFFSET;
+            int sx1 = (rx > cx + CURSOR_SHADOW_OFFSET) ? rx : cx + CURSOR_SHADOW_OFFSET;
+            int sy1 = (ry > cy + CURSOR_SHADOW_OFFSET) ? ry : cy + CURSOR_SHADOW_OFFSET;
+            int sx2 = (rx2 < cx + 10 + CURSOR_SHADOW_OFFSET) ? rx2 : cx + 10 + CURSOR_SHADOW_OFFSET;
+            int sy2 = (ry2 < cy + 10 + CURSOR_SHADOW_OFFSET) ? ry2 : cy + 10 + CURSOR_SHADOW_OFFSET;
             for (int y = sy1; y < sy2; y++) {
                 for (int x = sx1; x < sx2; x++) {
-                    int bx = x - (cursor_rect.x + CURSOR_SHADOW_OFFSET);
-                    int by = y - (cursor_rect.y + CURSOR_SHADOW_OFFSET);
+                    int bx = x - (cx + CURSOR_SHADOW_OFFSET);
+                    int by = y - (cy + CURSOR_SHADOW_OFFSET);
                     if(bitmap[by * 10 + bx]) {
                         fb[y * SCREEN_W + x] = SHADOW_COLOR;
                     }
@@ -409,15 +475,15 @@ void composite_region(Rect *r) {
 #endif
 
             // Render cursor itself
-            int cx1 = (rx > cursor_rect.x) ? rx : cursor_rect.x;
-            int cy1 = (ry > cursor_rect.y) ? ry : cursor_rect.y;
-            int cx2 = (rx2 < cursor_rect.x + 10) ? rx2 : cursor_rect.x + 10;
-            int cy2 = (ry2 < cursor_rect.y + 10) ? ry2 : cursor_rect.y + 10;
+            int cx1 = (rx > cx) ? rx : cx;
+            int cy1 = (ry > cy) ? ry : cy;
+            int cx2 = (rx2 < cx + 10) ? rx2 : cx + 10;
+            int cy2 = (ry2 < cy + 10) ? ry2 : cy + 10;
             
             for (int y = cy1; y < cy2; y++) {
                 for (int x = cx1; x < cx2; x++) {
-                    int bx = x - cursor_rect.x;
-                    int by = y - cursor_rect.y;
+                    int bx = x - cx;
+                    int by = y - cy;
                     if(bitmap[by * 10 + bx]) {
                         fb[y * SCREEN_W + x] = cursor_color;
                     }
@@ -455,18 +521,23 @@ void cursor_move(int new_x, int new_y) {
     if (new_x < 0) new_x = 0;
     if (new_y < 0) new_y = 0;
     
-    // Mark old position dirty
+    // Mark old position dirty (pad for hotspot offsets)
     int extra = ENABLE_SHADOWS ? CURSOR_SHADOW_OFFSET : 0;
-    mark_dirty(cursor_rect.x, cursor_rect.y, 10 + extra, 10 + extra);
+    // Use larger dirty rect (-5 offset, 20 size) to cover I-beam offset
+    mark_dirty(cursor_rect.x - 5, cursor_rect.y - 5, 20 + extra, 20 + extra);
 
     // If we were hovering a close button, mark it dirty so it transitions back
     Window *old_hit = find_window_at(cursor_rect.x, cursor_rect.y);
     if(old_hit && old_hit->type == WIN_TYPE_CLIENT) {
         int bx = cursor_rect.x - old_hit->x;
         int by = cursor_rect.y - old_hit->y;
-        if(by < TITLE_BAR_HEIGHT && bx >= old_hit->w - CLOSE_BTN_SIZE - MAX_BTN_SIZE - 8 && bx < old_hit->w - 4) {
-             // Mark both buttons dirty
-             mark_dirty(old_hit->x + old_hit->w - CLOSE_BTN_SIZE - MAX_BTN_SIZE - 8, old_hit->y + 3, CLOSE_BTN_SIZE + MAX_BTN_SIZE + 4, CLOSE_BTN_SIZE);
+        // Check if over any button area (Close, Max, Min). Total width roughly: Close(14+4) + Max(14+4) + Min(14+4)
+        // Close starts at w-18. Max starts at w-36. Min starts at w-54. (Approx)
+        // Let's just mark the wider area dirty if we were in the title bar right side logic.
+        // Close_x = w - 18. Min_x = w - 18 - 18 - 18 = w - 54.
+        if(by < TITLE_BAR_HEIGHT && bx >= old_hit->w - 60 && bx < old_hit->w - 4) {
+             // Mark all buttons dirty
+             mark_dirty(old_hit->x + old_hit->w - 60, old_hit->y + 3, 60, CLOSE_BTN_SIZE);
         }
     }
     
@@ -474,17 +545,17 @@ void cursor_move(int new_x, int new_y) {
     cursor_rect.x = new_x;
     cursor_rect.y = new_y;
     
-    // Mark new position dirty
-    mark_dirty(new_x, new_y, 10 + extra, 10 + extra);
+    // Use larger dirty rect (-5 offset, 20 size) to cover I-beam offset
+    mark_dirty(new_x - 5, new_y - 5, 20 + extra, 20 + extra);
 
     // If we are now hovering a close button, mark it dirty so it transitions to bright red
     Window *new_hit = find_window_at(new_x, new_y);
     if(new_hit && new_hit->type == WIN_TYPE_CLIENT) {
         int bx = new_x - new_hit->x;
         int by = new_y - new_hit->y;
-        if(by < TITLE_BAR_HEIGHT && bx >= new_hit->w - CLOSE_BTN_SIZE - MAX_BTN_SIZE - 8 && bx < new_hit->w - 4) {
-             // Mark both buttons dirty
-             mark_dirty(new_hit->x + new_hit->w - CLOSE_BTN_SIZE - MAX_BTN_SIZE - 8, new_hit->y + 3, CLOSE_BTN_SIZE + MAX_BTN_SIZE + 4, CLOSE_BTN_SIZE);
+        if(by < TITLE_BAR_HEIGHT && bx >= new_hit->w - 60 && bx < new_hit->w - 4) {
+             // Mark all buttons dirty
+             mark_dirty(new_hit->x + new_hit->w - 60, new_hit->y + 3, 60, CLOSE_BTN_SIZE);
         }
     }
     
@@ -619,6 +690,34 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
   return win;
 }
 
+#define MAX_WINDOWS 64
+
+// Helper to sort windows by ID for stable taskbar order
+void sort_windows_by_id(Window **arr, int count) {
+    for (int i = 0; i < count - 1; i++) {
+        for (int j = 0; j < count - i - 1; j++) {
+            if (arr[j]->id > arr[j+1]->id) {
+                Window *temp = arr[j];
+                arr[j] = arr[j+1];
+                arr[j+1] = temp;
+            }
+        }
+    }
+}
+
+// Helper to get windows in generic order (for taskbar)
+int get_all_windows(Window **arr, int max_count) {
+    int count = 0;
+    Window *curr = windows;
+    while(curr && count < max_count) {
+        if(curr->type == WIN_TYPE_CLIENT && curr->shm) {
+            arr[count++] = curr;
+        }
+        curr = curr->next;
+    }
+    return count;
+}
+
 // Move window to the end of the list (top of z-order)
 void
 window_raise(Window *w)
@@ -640,6 +739,116 @@ window_raise(Window *w)
   while(curr->next) curr = curr->next;
   curr->next = w;
   w->next = 0;
+}
+// Helper to draw char directly to screen
+void sulu_draw_char_screen(uint *fb, int stride, int x, int y, char ch, uint color) {
+    if(ch < 32 || ch > 127) ch = '?';
+    uchar *bitmap = font_8x8[ch - 32];
+    for(int r = 0; r < 8; r++) {
+        for(int c = 0; c < 8; c++) {
+            if(bitmap[r] & (1 << (7-c))) { // Render MSB as leftmost pixel
+               int px = x + c;
+               int py = y + r;
+               if(px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H) {
+                  fb[py * stride + px] = color;
+               }
+            }
+        }
+    }
+}
+
+// Helper to draw text directly to screen
+void draw_screen_text(int x, int y, char *s, uint color) {
+  while(*s) {
+    sulu_draw_char_screen(fb, SCREEN_W, x, y, *s, color);
+    x += 8;
+    s++;
+  }
+}
+
+// Draw the system bar (clipped)
+void draw_system_bar(Rect *clip) {
+  if (sysbar.type != WIDGET_TYPE_SYSBAR) return;
+  
+  int bar_y = sysbar.y;
+  int bar_h = sysbar.h;
+  
+  // Default to full bar if no clip
+  int cx = 0, cy = bar_y, cw = SCREEN_W, ch = bar_h;
+  
+  if(clip) {
+    cx = clip->x;
+    cy = clip->y;
+    cw = clip->w;
+    ch = clip->h;
+  }
+  
+  // Intersect clip with bar
+  int x = (cx > 0) ? cx : 0;
+  int y = (cy > bar_y) ? cy : bar_y;
+  int x2 = (cx + cw < SCREEN_W) ? cx + cw : SCREEN_W;
+  int y2 = (cy + ch < bar_y + bar_h) ? cy + ch : bar_y + bar_h;
+  
+  if (x >= x2 || y >= y2) return; // No intersection
+  
+  // Background
+  for(int j = y; j < y2; j++) {
+    for(int i = x; i < x2; i++) {
+      fb[j * SCREEN_W + i] = BAR_BG_COLOR;
+    }
+  }
+  
+  // Window buttons
+  int btn_x = 10;
+  
+  Window *sorted_wins[MAX_WINDOWS];
+  int win_count = get_all_windows(sorted_wins, MAX_WINDOWS);
+  sort_windows_by_id(sorted_wins, win_count);
+
+  for(int k = 0; k < win_count; k++) {
+    Window *curr = sorted_wins[k];
+    
+      uint bg = (curr == focus_win) ? BAR_BTN_ACTIVE : BAR_BTN_INACTIVE;
+      uint text = (curr == focus_win) ? BAR_BTN_TEXT_ACTIVE : BAR_BTN_TEXT_INACTIVE;
+      // Button rect
+      // Check if button intersects our draw area
+      int bx = btn_x;
+      int bw = BAR_BTN_WIDTH;
+      int by = bar_y + 5;
+      int bh = bar_h - 10;
+      
+      int draw_bx = (x > bx) ? x : bx;
+      int draw_by = (y > by) ? y : by;
+      int draw_bx2 = (x2 < bx + bw) ? x2 : bx + bw;
+      int draw_by2 = (y2 < by + bh) ? y2 : by + bh;
+      
+      if(draw_bx < draw_bx2 && draw_by < draw_by2) {
+          for(int j = draw_by; j < draw_by2; j++) {
+            for(int i = draw_bx; i < draw_bx2; i++) {
+              fb[j * SCREEN_W + i] = bg;
+            }
+          }
+          
+          // Title text (simple clipping: only draw if button fully visible or just draw anyway, 
+          // sulu_draw_char_screen handles screen bounds but not clip bounds.
+          // For simplicity, re-draw text if button is visible.
+          if(curr->shm->title[0]) {
+            char buf[16];
+            memmove(buf, curr->shm->title, 14);
+            buf[14] = 0;
+            int len = strlen(buf);
+            if(len > 12) { buf[12] = '.'; buf[13] = '.'; }
+            // Only draw text if it might be within clip (heuristic)
+            if(btn_x + 10 < x2 && btn_x + 10 + len*8 > x)
+                draw_screen_text(btn_x + 10, bar_y + 11, buf, text);
+          }
+      }
+      
+      btn_x += BAR_BTN_WIDTH + BAR_BTN_MARGIN;
+  }
+  
+  // Clock (placeholder)
+  draw_screen_text(SCREEN_W - 60, bar_y + 11, "XV6 OS", BAR_BTN_TEXT_INACTIVE);
 }
 
 // Composite all windows AND cursor (using z-index: bg -> windows -> cursor)
@@ -678,6 +887,9 @@ composite()
       w = w->next;
   }
   
+  // Draw System Bar (on top of windows, below cursor)
+  draw_system_bar(0);
+  
   // Draw cursor on top (highest z-index)
   for(int dy = 0; dy < 10; dy++){
       for(int dx = 0; dx < 10; dx++){
@@ -694,7 +906,7 @@ Window* find_window_at(int x, int y){
   Window *w = windows;
   Window *hit = 0;
   while(w){
-      if(x >= w->x && x < w->x + w->w && y >= w->y && y < w->y + w->h) hit = w;
+      if(!w->is_minimized && x >= w->x && x < w->x + w->w && y >= w->y && y < w->y + w->h) hit = w;
       w = w->next;
   }
   return hit;
@@ -708,12 +920,24 @@ void focus_window(Window *w) {
     Window *old_focus = focus_win;
     focus_win = w;
     
+    // Un-minimize if needed
+    if(w->is_minimized) {
+        w->is_minimized = 0;
+        // Mark window dirty to redraw it
+        window_mark_dirty(w);
+    }
+    
     // Raise to top of Z-order
     window_raise(w);
     
     // Mark windows dirty for repainting (border color change)
     if(old_focus && old_focus != w) window_mark_dirty(old_focus);
     window_mark_dirty(w);
+    
+    // Mark system bar dirty to update button highlights
+    if(sysbar.type == WIDGET_TYPE_SYSBAR) {
+        mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h);
+    }
 }
 
 int
@@ -742,6 +966,13 @@ main(int argc, char *argv[])
   int input_fd = open("/dev/input", O_RDONLY);
   if(input_fd < 0) exit(1);
   
+  // Initialize System Bar Widget
+  sysbar.x = 0;
+  sysbar.y = SCREEN_H - BAR_HEIGHT;
+  sysbar.w = SCREEN_W;
+  sysbar.h = BAR_HEIGHT;
+  sysbar.type = WIDGET_TYPE_SYSBAR;
+
   // Initial full screen composite and flush
   composite();
   gpu_flush();
@@ -785,6 +1016,9 @@ main(int argc, char *argv[])
               Window *new_win = spawn_client_window(pid, key, w, h);
               if(new_win) {
                 window_mark_dirty(new_win);
+                // Mark system bar dirty to show new button
+                if(sysbar.type == WIDGET_TYPE_SYSBAR)
+                     mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h);
               }
           } else if(msg.type == 2) { // SULU_EVENT_DISCONNECT
               // Find and close all windows for this PID
@@ -793,6 +1027,9 @@ main(int argc, char *argv[])
                   Window *next_w = w->next;
                   if(w->type == WIN_TYPE_CLIENT && w->client_pid == msg.pid) {
                       close_window(w);
+                      // Mark system bar dirty to remove button
+                      if(sysbar.type == WIDGET_TYPE_SYSBAR)
+                          mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h);
                   }
                   w = next_w;
               }
@@ -863,6 +1100,9 @@ main(int argc, char *argv[])
                 }
               } else if(cmd->type == SULU_CMD_CLOSE) {
                 close_window(w);
+                // Mark system bar dirty
+                if(sysbar.type == WIDGET_TYPE_SYSBAR)
+                    mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h);
                 closed = 1;
                 break; // Window is gone
               } else if(cmd->type == SULU_CMD_SWAP) {
@@ -978,82 +1218,118 @@ main(int argc, char *argv[])
                   if(ev.code == BTN_LEFT){
                       mouse_btn = (ev.value == 1);
                       if(mouse_btn){
-                          Window *hit = find_window_at(mouse_x, mouse_y);
-                          if(hit){
-                              // Raise window/Focus
-                              focus_window(hit);
-                              
-                              // Start Drag (if on title bar)
-                              if(hit->type == WIN_TYPE_CLIENT && mouse_y < hit->y + TITLE_BAR_HEIGHT) {
-                                // Check if close button was clicked
-                                int close_x = hit->x + hit->w - CLOSE_BTN_SIZE - 4;
-                                int close_y = hit->y + 3;
-                                int max_x = close_x - MAX_BTN_SIZE - 4;
-                                int max_y = close_y;
+                          // 1. Check Widgets (System Bar)
+                          if(mouse_x >= sysbar.x && mouse_x < sysbar.x + sysbar.w &&
+                             mouse_y >= sysbar.y && mouse_y < sysbar.y + sysbar.h) {
+                               if(sysbar.type == WIDGET_TYPE_SYSBAR) {
+                                  // Bar click logic (find button)
+                                  int btn_x = 10;
+                                  Window *sorted_wins[MAX_WINDOWS];
+                                  int win_count = get_all_windows(sorted_wins, MAX_WINDOWS);
+                                  sort_windows_by_id(sorted_wins, win_count);
 
-                                if(mouse_x >= close_x && mouse_x < close_x + CLOSE_BTN_SIZE &&
-                                   mouse_y >= close_y && mouse_y < close_y + CLOSE_BTN_SIZE) {
-                                    // Send close event to client
-                                    if(hit->shm) {
-                                        struct sulu_ring *r = &hit->shm->event_ring;
-                                        int next = (r->head + 1) % SULU_EVENT_RING_SIZE;
-                                        if(next != r->tail) {
-                                            hit->shm->event_buf[r->head].type = SULU_EV_CLOSE;
-                                            r->head = next;
-                                        }
-                                    }
-                                    close_window(hit);
-                                } else if(mouse_x >= max_x && mouse_x < max_x + MAX_BTN_SIZE &&
-                                          mouse_y >= max_y && mouse_y < max_y + MAX_BTN_SIZE) {
-                                    // Toggle maximization
-                                    hit->is_maximized = !hit->is_maximized;
-                                    if(hit->is_maximized) {
-                                        hit->old_x = hit->x; hit->old_y = hit->y;
-                                        hit->old_w = hit->w; hit->old_h = hit->h - TITLE_BAR_HEIGHT;
-                                        hit->x = 0; hit->y = 0;
-                                    } else {
-                                        window_mark_dirty(hit);
-                                        hit->x = hit->old_x; hit->y = hit->old_y;
-                                    }
-                                    if(hit->shm) {
-                                        hit->shm->x = hit->x;
-                                        hit->shm->y = hit->y;
-                                        struct sulu_ring *r = &hit->shm->event_ring;
-                                        int next = (r->head + 1) % SULU_EVENT_RING_SIZE;
-                                        if(next != r->tail) {
-                                            hit->shm->event_buf[r->head].type = SULU_EV_MAXIMIZE;
-                                            hit->shm->event_buf[r->head].value = hit->is_maximized;
-                                            hit->shm->event_buf[r->head].x = hit->old_w;
-                                            hit->shm->event_buf[r->head].y = hit->old_h;
-                                            r->head = next;
-                                        }
-                                    }
-                                } else if (!hit->is_maximized) {
-                                    drag_win = hit;
-                                    drag_off_x = mouse_x - hit->x;
-                                    drag_off_y = mouse_y - hit->y;
-                                }
-                              } else if(hit->type == WIN_TYPE_CLIENT && hit->shm) {
-                                    // Content area click
-                                    struct sulu_event sev = {
-                                        .type = SULU_EV_MOUSE_BTN,
-                                        .code = BTN_LEFT,
-                                        .value = 1,
-                                        .x = mouse_x,
-                                        .y = mouse_y
-                                    };
-                                    sulu_event_push(hit->shm, &sev);
+                                  for(int k = 0; k < win_count; k++) {
+                                      Window *curr = sorted_wins[k];
+                                      
+                                          if(mouse_x >= btn_x && mouse_x < btn_x + BAR_BTN_WIDTH) {
+                                              focus_window(curr);
+                                              break;
+                                          }
+                                          btn_x += BAR_BTN_WIDTH + BAR_BTN_MARGIN;
+                                  }
+                               }
+                          } 
+                          // 2. Check Windows
+                          else {
+                              Window *hit = find_window_at(mouse_x, mouse_y);
+                              if(hit){
+                                  // Raise/Focus
+                                  focus_window(hit);
+                                  
+                                  // Title bar / Close / Maximize logic
+                                  if(hit->type == WIN_TYPE_CLIENT && mouse_y < hit->y + TITLE_BAR_HEIGHT) {
+                                       // Check close button
+                                       int close_x = hit->x + hit->w - CLOSE_BTN_SIZE - 4;
+                                       int close_y = hit->y + 3;
+                                       int max_x = close_x - MAX_BTN_SIZE - 4;
+                                       int max_y = close_y;
+
+                                       if(mouse_x >= close_x && mouse_x < close_x + CLOSE_BTN_SIZE &&
+                                          mouse_y >= close_y && mouse_y < close_y + CLOSE_BTN_SIZE) {
+                                           if(hit->shm) {
+                                               struct sulu_ring *r = &hit->shm->event_ring;
+                                               int next = (r->head + 1) % SULU_EVENT_RING_SIZE;
+                                               if(next != r->tail) {
+                                                   hit->shm->event_buf[r->head].type = SULU_EV_CLOSE;
+                                                   r->head = next;
+                                               }
+                                           }
+                                           close_window(hit);
+                                           // Mark system bar dirty
+                                           if(sysbar.type == WIDGET_TYPE_SYSBAR)
+                                               mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h);
+                                       } else if(mouse_x >= max_x && mouse_x < max_x + MAX_BTN_SIZE &&
+                                                 mouse_y >= max_y && mouse_y < max_y + MAX_BTN_SIZE) {
+                                           // Toggle maximization
+                                           hit->is_maximized = !hit->is_maximized;
+                                           if(hit->is_maximized) {
+                                               hit->old_x = hit->x; hit->old_y = hit->y;
+                                               hit->old_w = hit->w; hit->old_h = hit->h - TITLE_BAR_HEIGHT;
+                                               hit->x = 0; hit->y = 0;
+                                           } else {
+                                               window_mark_dirty(hit);
+                                               hit->x = hit->old_x; hit->y = hit->old_y;
+                                           }
+                                           if(hit->shm) {
+                                               hit->shm->x = hit->x;
+                                               hit->shm->y = hit->y;
+                                               struct sulu_ring *r = &hit->shm->event_ring;
+                                               int next = (r->head + 1) % SULU_EVENT_RING_SIZE;
+                                               if(next != r->tail) {
+                                                   hit->shm->event_buf[r->head].type = SULU_EV_MAXIMIZE;
+                                                   hit->shm->event_buf[r->head].value = hit->is_maximized;
+                                                   if(hit->is_maximized) {
+                                                       hit->shm->event_buf[r->head].x = SCREEN_W;
+#if FULLSCREEN_OVER_SYS_BAR
+                                                       hit->shm->event_buf[r->head].y = SCREEN_H - TITLE_BAR_HEIGHT;
+#else
+                                                       hit->shm->event_buf[r->head].y = SCREEN_H - TITLE_BAR_HEIGHT - BAR_HEIGHT;
+#endif
+                                                   } else {
+                                                       hit->shm->event_buf[r->head].x = hit->old_w;
+                                                       hit->shm->event_buf[r->head].y = hit->old_h;
+                                                   }
+                                                   r->head = next;
+                                               }
+                                           }
+                                       } else {
+                                            // Check Minimize
+                                            int min_x = max_x - MIN_BTN_SIZE - 4;
+                                            int min_y = close_y;
+                                            if(mouse_x >= min_x && mouse_x < min_x + MIN_BTN_SIZE &&
+                                               mouse_y >= min_y && mouse_y < min_y + MIN_BTN_SIZE) {
+                                                hit->is_minimized = 1;
+                                                window_mark_dirty(hit); // Mark old area dirty to clear it
+                                                focus_win = 0; // Drop focus
+                                                if(sysbar.type == WIDGET_TYPE_SYSBAR)
+                                                    mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h); // Update taskbar highlight
+                                            } else if (!hit->is_maximized) {
+                                               drag_win = hit;
+                                               drag_off_x = mouse_x - hit->x;
+                                               drag_off_y = mouse_y - hit->y;
+                                            }
+                                       }
+                                  } else if(hit->type == WIN_TYPE_CLIENT && hit->shm) {
+                                      // Content area click
+                                      struct sulu_event sev = { .type = SULU_EV_MOUSE_BTN, .code = BTN_LEFT, .value = 1, .x = mouse_x, .y = mouse_y };
+                                      sulu_event_push(hit->shm, &sev);
+                                  }
                               }
                           }
                       } else {
+                          // Mouse Release
                           if(!drag_win && focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm) {
-                              struct sulu_event sev = {
-                                  .type = SULU_EV_MOUSE_BTN,
-                                  .code = BTN_LEFT,
-                                  .value = 0,
-                                  .x = mouse_x,
-                                  .y = mouse_y
-                              };
+                              struct sulu_event sev = { .type = SULU_EV_MOUSE_BTN, .code = BTN_LEFT, .value = 0, .x = mouse_x, .y = mouse_y };
                               sulu_event_push(focus_win->shm, &sev);
                           }
                           drag_win = 0;
