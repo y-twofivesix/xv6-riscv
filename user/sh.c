@@ -179,7 +179,7 @@ getcmd(char
   write(2, promptstr, strlen(promptstr));
 
   memset(buf, 0, nbuf);
-  gets(buf, nbuf);
+  readline(buf, nbuf);  // Use readline for interactive editing
   if(buf[0] == 0) // EOF
     return -1;
   return 0;

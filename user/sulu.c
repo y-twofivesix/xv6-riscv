@@ -63,6 +63,10 @@ int shift_state = 0;
 int ctrl_pressed = 0;
 int capslock_state = 0;
 
+// Global Clipboard
+char global_clipboard[2048];
+int global_clip_len = 0;
+
 // Window type (all windows are now client windows)
 #define WIN_TYPE_CLIENT   1
 
@@ -585,6 +589,8 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
   // If client didn't set width/height, do it now
   if(shm->width == 0) shm->width = width;
   if(shm->height == 0) shm->height = height;
+  shm->x = win->x;
+  shm->y = win->y;
   
   shm->cmd_ring.head = 0;
   shm->cmd_ring.tail = 0;
@@ -811,6 +817,7 @@ main(int argc, char *argv[])
                           w->w = new_shm->width;
                           w->h = new_shm->height + TITLE_BAR_HEIGHT;
                           if (w->is_maximized) { w->x = 0; w->y = 0; }
+                          if (w->shm) { w->shm->x = w->x; w->shm->y = w->y; }
                           
                           // Mark new area dirty
                           window_mark_dirty(w);
@@ -860,6 +867,26 @@ main(int argc, char *argv[])
                   // We just update our local pointer and mark full dirty.
                   w->buf = sulu_front_pixels(w->shm);
                   window_mark_dirty(w);
+                }
+              } else if(cmd->type == SULU_CMD_CLIP_SET) {
+                // Copy from client to global clipboard
+                int len = w->shm->clipboard_len;
+                if(len > 2048) len = 2048;
+                if(len < 0) len = 0;
+                memmove(global_clipboard, w->shm->clipboard, len);
+                global_clip_len = len;
+              } else if(cmd->type == SULU_CMD_CLIP_GET) {
+                // Copy from global clipboard to client
+                int len = global_clip_len;
+                memmove(w->shm->clipboard, global_clipboard, len);
+                w->shm->clipboard_len = len;
+                
+                // Push PASTE event
+                struct sulu_ring *er = &w->shm->event_ring;
+                int next = (er->head + 1) % SULU_EVENT_RING_SIZE;
+                if(next != er->tail) {
+                    w->shm->event_buf[er->head].type = SULU_EV_PASTE;
+                    er->head = next;
                 }
               }
               r->tail = (r->tail + 1) % SULU_CMD_RING_SIZE;
@@ -911,6 +938,10 @@ main(int argc, char *argv[])
                       // Update window position
                       drag_win->x = mouse_x - drag_off_x;
                       drag_win->y = mouse_y - drag_off_y;
+                      if(drag_win->shm) {
+                          drag_win->shm->x = drag_win->x;
+                          drag_win->shm->y = drag_win->y;
+                      }
                       
                       // Mark new position dirty
                       window_mark_dirty(drag_win);
@@ -928,6 +959,14 @@ main(int argc, char *argv[])
                           cursor_move(mouse_x, mouse_y);
                           prev_mouse_x = mouse_x;
                           prev_mouse_y = mouse_y;
+                          if(focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm){
+                              struct sulu_event sev = {
+                                  .type = SULU_EV_MOUSE_MOVE,
+                                  .x = mouse_x,
+                                  .y = mouse_y
+                              };
+                              sulu_event_push(focus_win->shm, &sev);
+                          }
                       }
                   }
               } else if(ev.type == EV_KEY){
@@ -967,12 +1006,14 @@ main(int argc, char *argv[])
                                     if(hit->is_maximized) {
                                         hit->old_x = hit->x; hit->old_y = hit->y;
                                         hit->old_w = hit->w; hit->old_h = hit->h - TITLE_BAR_HEIGHT;
+                                        hit->x = 0; hit->y = 0;
                                     } else {
                                         window_mark_dirty(hit);
                                         hit->x = hit->old_x; hit->y = hit->old_y;
                                     }
-                                    // Send maximize event to client
                                     if(hit->shm) {
+                                        hit->shm->x = hit->x;
+                                        hit->shm->y = hit->y;
                                         struct sulu_ring *r = &hit->shm->event_ring;
                                         int next = (r->head + 1) % SULU_EVENT_RING_SIZE;
                                         if(next != r->tail) {
@@ -988,9 +1029,29 @@ main(int argc, char *argv[])
                                     drag_off_x = mouse_x - hit->x;
                                     drag_off_y = mouse_y - hit->y;
                                 }
+                              } else if(hit->type == WIN_TYPE_CLIENT && hit->shm) {
+                                    // Content area click
+                                    struct sulu_event sev = {
+                                        .type = SULU_EV_MOUSE_BTN,
+                                        .code = BTN_LEFT,
+                                        .value = 1,
+                                        .x = mouse_x,
+                                        .y = mouse_y
+                                    };
+                                    sulu_event_push(hit->shm, &sev);
                               }
                           }
                       } else {
+                          if(!drag_win && focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm) {
+                              struct sulu_event sev = {
+                                  .type = SULU_EV_MOUSE_BTN,
+                                  .code = BTN_LEFT,
+                                  .value = 0,
+                                  .x = mouse_x,
+                                  .y = mouse_y
+                              };
+                              sulu_event_push(focus_win->shm, &sev);
+                          }
                           drag_win = 0;
                       }
                   }
@@ -1004,25 +1065,30 @@ main(int argc, char *argv[])
                           };
                           sulu_event_push(focus_win->shm, &sev);
                       }
-                  } else if(ev.code == KEY_LEFTSHIFT || ev.code == KEY_RIGHTSHIFT){
-                      shift_state = (ev.value == 1);
-                  } else if(ev.code == KEY_LEFTCTRL || ev.code == KEY_RIGHTCTRL){
-                      ctrl_pressed = (ev.value == 1);
-                  } else if(ev.code == KEY_CAPSLOCK){
-                      if(ev.value == 1) capslock_state = !capslock_state;
-                  } else if(ev.code == KEY_E && ev.value == 1 && ctrl_pressed){
-                      // Ctrl+E -> Suspend
-                      suspended = 1;
-                      printf("sulu: suspended\n");
-                  }
-                  // Forward keyboard events to client windows
-                  else if(focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm){
-                      struct sulu_event sev = {
-                          .type = SULU_EV_KEY,
-                          .code = ev.code,
-                          .value = ev.value
-                      };
-                       sulu_event_push(focus_win->shm, &sev);
+                   } else {
+                       // Update Sulu internal state for modifiers
+                       if(ev.code == KEY_LEFTSHIFT || ev.code == KEY_RIGHTSHIFT){
+                           shift_state = (ev.value == 1);
+                       } else if(ev.code == KEY_LEFTCTRL || ev.code == KEY_RIGHTCTRL){
+                           ctrl_pressed = (ev.value == 1);
+                       } else if(ev.code == KEY_CAPSLOCK && ev.value == 1){
+                           capslock_state = !capslock_state;
+                       }
+
+                       // Check for Sulu hotkeys
+                       if(ev.code == KEY_E && ev.value == 1 && ctrl_pressed){
+                           suspended = 1;
+                           printf("sulu: suspended\n");
+                       } 
+                       // Forward keyboard events to client windows
+                       else if(focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm){
+                           struct sulu_event sev = {
+                               .type = SULU_EV_KEY,
+                               .code = ev.code,
+                               .value = ev.value
+                           };
+                           sulu_event_push(focus_win->shm, &sev);
+                       }
                    }
                } else if(ev.type == EV_REL){
                    if(ev.code == REL_WHEEL){

@@ -58,6 +58,8 @@ sulu_connect(int shm_key, int width, int height) {
 #define SULU_CMD_CLOSE       2   // Close window
 #define SULU_CMD_RESIZE      3   // Request resize
 #define SULU_CMD_SWAP        5   // Swap front/back buffers (double buffering)
+#define SULU_CMD_CLIP_SET    6   // Copy from shm->clipboard to WM
+#define SULU_CMD_CLIP_GET    7   // Copy from WM to shm->clipboard
 
 // Flags (shm->flags)
 #define SULU_FLAG_DOUBLE_BUFFER (1 << 0)
@@ -76,6 +78,7 @@ sulu_connect(int shm_key, int width, int height) {
 #define SULU_EV_CLOSE        5   // User clicked close button
 #define SULU_EV_MAXIMIZE     6   // User clicked maximize button
 #define SULU_EV_MOUSE_WHEEL  7   // Mouse wheel scroll (value = delta)
+#define SULU_EV_PASTE        8   // Clipboard data is ready in shm->clipboard
 
 // Command structure (client writes these)
 struct sulu_cmd {
@@ -107,11 +110,15 @@ struct sulu_window_shm {
     int win_id;
     int width;
     int height;
+    int x;
+    int y;
     int flags;              // SULU_FLAG_*
     int cursor_type;        // SULU_CURSOR_*
     int front_buf;          // Index of front buffer (for double buffering)
     uint bgcolor;           // Window background color (ARGB)
     char title[64];         // Window title (null-terminated)
+    char clipboard[2048];   // Clipboard transit buffer
+    int  clipboard_len;     // Length of valid clipboard data
     
     // Command ring (client -> sulu)
     struct sulu_ring cmd_ring;

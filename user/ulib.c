@@ -132,14 +132,14 @@ strchr(const char *s, char c)
   return 0;
 }
 
+// Simple gets: just read until newline, no editing
 char*
 gets(char *buf, int max)
 {
   int i, cc;
   char c;
 
-  for(i=0; i+1 < max; )
-  {
+  for(i=0; i+1 < max; ){
     cc = read(0, &c, 1);
     if(cc < 1)
       break;
@@ -148,6 +148,89 @@ gets(char *buf, int max)
       break;
   }
   buf[i] = '\0';
+  return buf;
+}
+
+// readline: interactive line editing with cursor movement
+char*
+readline(char *buf, int max)
+{
+  int n = 0;     // total length
+  int pos = 0;   // cursor position
+  int cc;
+  char c;
+  int esc_state = 0;
+
+  while(1){
+    cc = read(0, &c, 1);
+    if(cc < 1)
+      break;
+
+    if(esc_state == 0){
+      if(c == '\033'){
+        esc_state = 1;
+        continue;
+      }
+      if(c == '\b' || c == 0x7f){
+        if(pos > 0){
+          // Shift buffer left
+          for(int j = pos - 1; j < n - 1; j++)
+            buf[j] = buf[j+1];
+          pos--;
+          n--;
+          buf[n] = '\0';
+          
+          // Visual backspace: move left, print space, move left
+          printf("\b \b");
+          
+          // If deleted from middle, redraw the tail
+          if(n > pos){
+            printf("%s ", &buf[pos]);
+            for(int j = 0; j <= n - pos; j++) printf("\b");
+          }
+        }
+        continue;
+      }
+      if(c == '\n' || c == '\r'){
+        buf[n] = '\n';
+        n++;
+        break;
+      }
+      // Insert character
+      if(n + 1 < max){
+        // Shift buffer right
+        for(int j = n; j > pos; j--)
+          buf[j] = buf[j-1];
+        buf[pos] = c;
+        pos++;
+        n++;
+        buf[n] = '\0';
+        
+        // If inserted in middle, redraw the tail
+        if(pos < n){
+          printf("%s", &buf[pos]);
+          for(int j = 0; j < n - pos; j++) printf("\033[D");
+        }
+      }
+    } else if(esc_state == 1){
+      if(c == '[') esc_state = 2;
+      else esc_state = 0;
+    } else if(esc_state == 2){
+      if(c == 'C'){ // Forward (Right Arrow)
+        if(pos < n){
+          pos++;
+          printf("\033[C");
+        }
+      } else if(c == 'D'){ // Backward (Left Arrow)
+        if(pos > 0){
+          pos--;
+          printf("\033[D");
+        }
+      }
+      esc_state = 0;
+    }
+  }
+  buf[n] = '\0';
   return buf;
 }
 

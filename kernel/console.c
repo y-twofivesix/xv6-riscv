@@ -134,43 +134,44 @@ consoleread(int user_dst, uint64 dst, int n, int minor)
 void
 consoleintr(int c)
 {
+  static int esc_state = 0;
   acquire(&cons.lock);
 
   switch(c){
   case C('P'):  // Print process list.
     procdump();
     break;
-  case C('U'):  // Kill line.
-    while(cons.e != cons.w &&
-          cons.buf[(cons.e-1) % INPUT_BUF_SIZE] != '\n'){
-      cons.e--;
-      consputc(BACKSPACE);
-    }
-    break;
-  case C('H'): // Backspace
-  case '\x7f': // Delete key
-    if(cons.e != cons.w){
-      cons.e--;
-      consputc(BACKSPACE);
-    }
-    break;
   default:
     if(c != 0 && cons.e-cons.r < INPUT_BUF_SIZE){
       c = (c == '\r') ? '\n' : c;
 
-      // echo back to the user.
-      consputc(c);
+      // don't echo escape sequences
+      int in_esc = 0;
+      if(c == '\033') {
+        esc_state = 1;
+        in_esc = 1;
+      } else if(esc_state == 1) {
+        in_esc = 1;
+        if(c == '[') esc_state = 2;
+        else esc_state = 0;
+      } else if(esc_state == 2) {
+        in_esc = 1;
+        // Stay in state 2 for digits/semicolons, otherwise end sequence
+        if(!(c >= '0' && c <= '9') && c != ';') esc_state = 0;
+      }
+
+      // echo back to the user if not in escape
+      // Don't echo backspace - let userspace handle it (so it can guard prompt boundary)
+      if(!in_esc && c != '\b' && c != 0x7f) {
+        consputc(c);
+      }
 
       // store for consumption by consoleread().
       cons.buf[cons.e++ % INPUT_BUF_SIZE] = c;
 
-      if(c == '\n' || c == C('D') || cons.e-cons.r == INPUT_BUF_SIZE)
-      {
-        // wake up consoleread() if a whole line (or end-of-file)
-        // has arrived.
-        cons.w = cons.e;
-        wakeup(&cons.r);
-      }
+      // Wake up reader for every character (Raw-ish mode)
+      cons.w = cons.e;
+      wakeup(&cons.r);
     }
     break;
   }

@@ -62,6 +62,7 @@ void printf(const char*, ...) __attribute__ ((format (printf, 1, 2)));
 void vprintf(int, const char*, va_list);
 void sprintf( char *, const char*, ...) __attribute__ ((format (printf, 2, 3)));
 char* gets(char*, int max);
+char* readline(char*, int max);  // Interactive line editing
 uint strlen(const char*);
 void* memset(void*, int, uint);
 int atoi(const char*);

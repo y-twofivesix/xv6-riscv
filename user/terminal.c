@@ -25,6 +25,7 @@ int g_rows = 20;
 #define TERM_BACK     0xFF040720  // Fully opaque dark purple
 #define TEXT_COLOR    0xFFFFFFFF
 #define CURSOR_COLOR  0xFF00FFCB
+#define SEL_COLOR     0xFF004488  // Darker blue for selection
 
 // Input Event Codes
 #define EV_KEY 0x01
@@ -37,6 +38,9 @@ int g_rows = 20;
 #define KEY_DOWN 108
 #define KEY_LEFT 105
 #define KEY_RIGHT 106
+#define KEY_C 46
+#define KEY_P 25
+#define BTN_LEFT 0x110
 
 // Keyboard maps
 char keymap[128] = {
@@ -63,8 +67,13 @@ typedef struct {
   int input_start_col;
   int scroll_offset;      // How many rows we are scrolled UP (0 = bottom)
   int active_rows;        // Total rows containing data
+  int is_selecting;
+  int sel_start_row, sel_start_col;
+  int sel_end_row, sel_end_col;
   char ansi_buf[16];
   int ansi_idx;
+  char clipboard[2048];
+  int clipboard_len;
 } Terminal;
 
 // Globals
@@ -83,12 +92,29 @@ int capslock_state = 0;
 #define WIN_H (win.height)
 
 // Draw a single character at pixel position (with background)
-// Uses the Sulu API for the actual glyph rendering
-void draw_char_at(int px, int py, char ch, uint color) {
-  // First clear the character cell background
-  sulu_fill_rect(shm, px, py, CHAR_W, CHAR_H, TERM_BACK);
-  // Then draw the character using Sulu's font renderer
-  sulu_draw_char(shm, px, py, ch, color);
+void draw_char_at(int px, int py, char ch, uint color, int highlighted) {
+  uint bg = highlighted ? SEL_COLOR : TERM_BACK;
+  sulu_fill_rect(shm, px, py, CHAR_W, CHAR_H, bg);
+  if (ch != 0) sulu_draw_char(shm, px, py, ch, color);
+}
+
+// Helper: Check if absolute (r, c) is in current selection
+int is_in_selection(int r, int c) {
+  if (term.sel_start_row == -1) return 0;
+  
+  int r1 = term.sel_start_row, c1 = term.sel_start_col;
+  int r2 = term.sel_end_row, c2 = term.sel_end_col;
+  
+  // Normalize
+  if (r1 > r2 || (r1 == r2 && c1 > c2)) {
+    int tr = r1; r1 = r2; r2 = tr;
+    int tc = c1; c1 = c2; c2 = tc;
+  }
+  
+  if (r < r1 || r > r2) return 0;
+  if (r == r1 && c < c1) return 0;
+  if (r == r2 && c > c2) return 0;
+  return 1;
 }
 
 // Redraw a single absolute row to its relative screen position
@@ -106,18 +132,19 @@ void redraw_line(int r) {
   for (int c = 0; c < g_cols; c++) {
     int py = base_py;
     char ch = term.display[r][c];
+    int highlighted = is_in_selection(r, c);
     
     if (r == term.cursor_row && c == term.cursor_col) {
-      draw_char_at(px, py, '{', CURSOR_COLOR);
+      draw_char_at(px, py, '{', CURSOR_COLOR, highlighted);
       px += CHAR_W;
       if (ch != 0 && ch != ' ') {
-        draw_char_at(px, py, ch, TEXT_COLOR);
+        draw_char_at(px, py, ch, TEXT_COLOR, highlighted);
         px += CHAR_W;
       }
-      draw_char_at(px, py, '}', CURSOR_COLOR);
+      draw_char_at(px, py, '}', CURSOR_COLOR, highlighted);
       px += CHAR_W;
     } else {
-      if (ch != 0) draw_char_at(px, py, ch, TEXT_COLOR);
+      draw_char_at(px, py, ch, TEXT_COLOR, highlighted);
       px += CHAR_W;
     }
   }
@@ -141,7 +168,23 @@ void redraw_all() {
 void draw_char(int r, int c, char ch, uint color) {
   int px = PADDING + c * CHAR_W;
   int py = PADDING + r * (CHAR_H + LINE_SPACING);
-  draw_char_at(px, py, ch, color);
+  draw_char_at(px, py, ch, color, is_in_selection(r, c));
+}
+
+// Convert screen (mx, my) to absolute buffer (row, col)
+void mouse_to_buffer(int mx, int my, int *row, int *col) {
+  int lx = mx - shm->x;
+  int ly = my - shm->y - TITLE_HEIGHT;
+  
+  *col = (lx - PADDING) / CHAR_W;
+  int rel_row = (ly - PADDING) / (CHAR_H + LINE_SPACING);
+  int base_abs = (term.active_rows > g_rows ? term.active_rows - g_rows : 0) - term.scroll_offset;
+  *row = base_abs + rel_row;
+  
+  if (*col < 0) *col = 0;
+  if (*col >= g_cols) *col = g_cols - 1;
+  if (*row < 0) *row = 0;
+  if (*row >= 100) *row = 99;
 }
 
 // Put a character to terminal (handles ANSI escape sequences)
@@ -167,7 +210,6 @@ void term_putc(char c) {
     } else if (c == '\b') {
       if (term.cursor_col > 0) {
         term.cursor_col--;
-        term.display[term.cursor_row][term.cursor_col] = ' ';  // Clear the character
         redraw_line(term.cursor_row);  // Redraw to show cursor
       }
     } else if (c >= ' ' && c <= '~') {
@@ -227,6 +269,26 @@ void term_putc(char c) {
         if (col < g_cols) term.cursor_col = col;
         redraw_line(old_row);
         if (term.cursor_row != old_row) redraw_line(term.cursor_row);
+      } else if (c == 'A') { // Up
+        int n = atoi(term.ansi_buf); if (n == 0) n = 1;
+        int old_row = term.cursor_row;
+        if (term.cursor_row >= n) term.cursor_row -= n;
+        else term.cursor_row = 0;
+        redraw_line(old_row); redraw_line(term.cursor_row);
+      } else if (c == 'B') { // Down
+        int n = atoi(term.ansi_buf); if (n == 0) n = 1;
+        int old_row = term.cursor_row;
+        if (term.cursor_row + n < 100) term.cursor_row += n;
+        else term.cursor_row = 99;
+        redraw_line(old_row); redraw_line(term.cursor_row);
+      } else if (c == 'C') { // Forward
+        int n = atoi(term.ansi_buf); if (n == 0) n = 1;
+        while(n-- > 0 && term.cursor_col < g_cols - 1) term.cursor_col++;
+        redraw_line(term.cursor_row);
+      } else if (c == 'D') { // Backward
+        int n = atoi(term.ansi_buf); if (n == 0) n = 1;
+        while(n-- > 0 && term.cursor_col > 0) term.cursor_col--;
+        redraw_line(term.cursor_row);
       }
       term.esc_state = 0;
     }
@@ -345,6 +407,7 @@ main(int argc, char *argv[])
   sleep(50);  // Give Sulu time to create window
   
   // 7. Initial render - draw cursor at position 0,0
+  term.sel_start_row = -1; // No selection
   redraw_line(0);
           sulu_blit(shm, 0, 0, WIN_W, WIN_H);
   
@@ -359,9 +422,12 @@ main(int argc, char *argv[])
       if (r > 0) {
         for (int i = 0; i < r; i++) {
           term_putc(buf[i]);
+          // Only update input_start on newline (new prompt line)
+          if (buf[i] == '\n') {
+            term.input_start_row = term.cursor_row;
+            term.input_start_col = term.cursor_col;
+          }
         }
-        term.input_start_row = term.cursor_row;
-        term.input_start_col = term.cursor_col;
         
         // Request Sulu to redraw
                 sulu_blit(shm, 0, 0, WIN_W, WIN_H);
@@ -411,6 +477,18 @@ main(int argc, char *argv[])
           sulu_blit(shm, 0, 0, WIN_W, WIN_H);
         }
         
+        if (code < 0x110 && term.sel_start_row != -1) {
+          // Don't clear on modifiers
+          if (code != KEY_LEFTSHIFT && code != KEY_RIGHTSHIFT &&
+              code != KEY_LEFTCTRL && code != KEY_RIGHTCTRL &&
+              code != KEY_CAPSLOCK &&
+              !(ctrl_pressed && (code == KEY_C || code == KEY_P))) {
+            term.sel_start_row = -1;
+            redraw_all();
+            sulu_blit(shm, 0, 0, WIN_W, WIN_H);
+          }
+        }
+        
         // Handle modifier keys
         if (code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT) {
           shift_state = 1;
@@ -420,42 +498,68 @@ main(int argc, char *argv[])
           ctrl_pressed = 1;
           continue;
         }
+
+        // Copy (Ctrl+C)
+        if (ctrl_pressed && code == KEY_C) {
+          if (term.sel_start_row != -1) {
+            int r1 = term.sel_start_row, c1 = term.sel_start_col;
+            int r2 = term.sel_end_row, c2 = term.sel_end_col;
+            if (r1 > r2 || (r1 == r2 && c1 > c2)) {
+                int tr=r1; r1=r2; r2=tr; int tc=c1; c1=c2; c2=tc;
+            }
+            
+            int len = 0;
+            for(int r = r1; r <= r2; r++) {
+               int cs = (r == r1) ? c1 : 0;
+               int ce = (r == r2) ? c2 : g_cols - 1;
+               for(int c = cs; c <= ce; c++) {
+                   if(len < 2047) shm->clipboard[len++] = term.display[r][c];
+               }
+               if(r < r2 && len < 2047) shm->clipboard[len++] = '\n';
+            }
+            shm->clipboard[len] = 0;
+            shm->clipboard_len = len;
+            
+            struct sulu_cmd cmd = { .type = SULU_CMD_CLIP_SET };
+            sulu_cmd_push(shm, &cmd);
+          }
+          continue;
+        }
+
+        // Paste (Ctrl+P)
+        if (ctrl_pressed && code == KEY_P) {
+          struct sulu_cmd cmd = { .type = SULU_CMD_CLIP_GET };
+          sulu_cmd_push(shm, &cmd);
+          continue;
+        }
         if (code == KEY_CAPSLOCK) {
           capslock_state = !capslock_state;
           continue;
         }
         
-        // Handle arrow keys
+        // Handle arrow keys - Send ANSI escape sequences to shell
         if (code == KEY_LEFT) {
-          // Don't move left past input start
-          if (term.cursor_row == term.input_start_row && term.cursor_col > term.input_start_col) {
-            term.cursor_col--;
-            redraw_line(term.cursor_row);
-                    sulu_blit(shm, 0, 0, WIN_W, WIN_H);
-          }
+          char buf[3] = {'\033', '[', 'D'};
+          write(shell_fd_in, buf, 3);
           continue;
         }
         if (code == KEY_RIGHT) {
-          // Move right within bounds (no content limit)
-          if (term.cursor_col < g_cols - 1) {
-            term.cursor_col++;
-            redraw_line(term.cursor_row);
-                    sulu_blit(shm, 0, 0, WIN_W, WIN_H);
-          }
+          char buf[3] = {'\033', '[', 'C'};
+          write(shell_fd_in, buf, 3);
           continue;
         }
         
         // Convert to character and send to shell
         char ch = key_to_char(code);
         if (ch != 0) {
-          // Check for backspace - don't go past input start
+          // Backspace: don't echo locally, let readline() handle visual feedback
           if (ch == '\b') {
-            if (term.cursor_row == term.input_start_row && term.cursor_col <= term.input_start_col) {
-              continue;  // Don't backspace past prompt
-            }
+            write(shell_fd_in, &ch, 1);
+            sulu_blit(shm, 0, 0, WIN_W, WIN_H);
+            continue;
           }
           write(shell_fd_in, &ch, 1);
-          term_putc(ch);  // Echo
+          term_putc(ch);  // Echo regular characters
           sulu_blit(shm, 0, 0, WIN_W, WIN_H);
         }
       } else if (ev.type == SULU_EV_KEY && ev.value == 0) {
@@ -466,6 +570,36 @@ main(int argc, char *argv[])
         if (code == KEY_LEFTCTRL || code == KEY_RIGHTCTRL) {
           ctrl_pressed = 0;
         }
+      }
+      // Mouse Selection
+      else if (ev.type == SULU_EV_MOUSE_BTN && ev.code == BTN_LEFT) {
+        if (ev.value == 1) {
+          term.is_selecting = 1;
+          mouse_to_buffer(ev.x, ev.y, &term.sel_start_row, &term.sel_start_col);
+          term.sel_end_row = term.sel_start_row;
+          term.sel_end_col = term.sel_start_col;
+          redraw_all();
+          sulu_blit(shm, 0, 0, WIN_W, WIN_H);
+        } else {
+          term.is_selecting = 0;
+        }
+      }
+      else if (ev.type == SULU_EV_MOUSE_MOVE && term.is_selecting) {
+          mouse_to_buffer(ev.x, ev.y, &term.sel_end_row, &term.sel_end_col);
+          redraw_all();
+          sulu_blit(shm, 0, 0, WIN_W, WIN_H);
+      }
+      else if (ev.type == SULU_EV_PASTE) {
+          // Auto-scroll to bottom on paste
+          term.scroll_offset = 0;
+          for(int i = 0; i < shm->clipboard_len; i++) {
+              char c = shm->clipboard[i];
+              if (c == 0) break;
+              write(shell_fd_in, &c, 1);
+              term_putc(c);
+          }
+          redraw_all();
+          sulu_blit(shm, 0, 0, WIN_W, WIN_H);
       }
       // Mouse Wheel - Scrolling
       else if (ev.type == SULU_EV_MOUSE_WHEEL) {
