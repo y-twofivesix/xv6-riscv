@@ -282,6 +282,8 @@ static inline int sulu_resize(struct sulu_window *win, int width, int height) {
     new_shm->width = width;
     new_shm->height = height;
     new_shm->flags = win->shm->flags;
+    new_shm->cursor_type = win->shm->cursor_type;
+    new_shm->bgcolor = win->shm->bgcolor;
     strcpy(new_shm->title, win->shm->title);
     new_shm->cmd_ring.head = 0;
     new_shm->cmd_ring.tail = 0;
@@ -311,18 +313,28 @@ static inline int sulu_resize(struct sulu_window *win, int width, int height) {
     return 0;
 }
 
+// Request a partial update of the window
+static inline void sulu_blit_rect(struct sulu_window *win, int x, int y, int w, int h) {
+    if (!win || !win->shm) return;
+    struct sulu_cmd cmd = { .type = SULU_CMD_BLIT };
+    cmd.blit.x = x;
+    cmd.blit.y = y;
+    cmd.blit.w = w;
+    cmd.blit.h = h;
+    sulu_cmd_push(win->shm, &cmd);
+}
+
 // Send SWAP command to Sulu (Double Buffering)
 static inline void sulu_swap(struct sulu_window *win) {
     if (!win || !win->shm) return;
+    
+    // Toggle front buffer index CLIENT SIDE to avoid flickering
+    win->shm->front_buf = (win->shm->front_buf == 0) ? 1 : 0;
+    
     struct sulu_cmd cmd = { .type = SULU_CMD_SWAP };
     sulu_cmd_push(win->shm, &cmd);
     
-    // Update local pixel pointer to point to the NEXT back buffer
-    // (Note: Sulu will update shm->front_buf internally when it receives the command)
-    // For smoothness, we assume the swap will happen.
-    // However, if we write too fast, we might overwrite.
-    // In a real system, Sulu would send an event back or we'd check front_buf.
-    // Here we just update the local pointer for the next frame.
+    // Update local pixel pointer to point to the NEW back buffer
     win->pixels = sulu_pixels(win->shm); 
 }
 

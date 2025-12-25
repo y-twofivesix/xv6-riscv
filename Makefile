@@ -149,7 +149,7 @@ UPROGS=\
 	$U/_tuitest\
 	$U/_suluctl_demo\
 	$U/_shmtest\
-	$U/_rect_demo\
+	$U/_bouncing_ball\
 	$U/_size_test\
 	$U/_terminal
 

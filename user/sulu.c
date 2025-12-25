@@ -494,6 +494,25 @@ void window_mark_dirty(Window *w) {
     mark_dirty(w->x, w->y, w->w + extra, w->h + extra);
 }
 
+// Mark a partial region of a window as dirty (rx, ry, rw, rh are in window content space)
+void window_mark_dirty_rect(Window *w, int rx, int ry, int rw, int rh) {
+    if (!w) return;
+    
+    // Convert to screen space. Content starts after title bar.
+    int sx = w->x + rx;
+    int sy = w->y + TITLE_BAR_HEIGHT + ry;
+    
+    // Clamp to window content area
+    if (rx < 0) { rw += rx; rx = 0; }
+    if (ry < 0) { rh += ry; ry = 0; }
+    if (rx + rw > w->w) rw = w->w - rx;
+    if (ry + rh > w->h - TITLE_BAR_HEIGHT) rh = (w->h - TITLE_BAR_HEIGHT) - ry;
+    
+    if (rw <= 0 || rh <= 0) return;
+    
+    mark_dirty(sx, sy, rw, rh);
+}
+
 // Close and free a window
 void close_window(Window *w) {
     if(!w) return;
@@ -824,21 +843,22 @@ main(int argc, char *argv[])
               did_work = 1;
               struct sulu_cmd *cmd = &w->shm->cmd_buf[r->tail];
               if(cmd->type == SULU_CMD_BLIT) {
-                // Mark window region dirty and composite
-                window_mark_dirty(w);
-                // Batch flush: Don't flush here, wait for end of loop
-                // composite_dirty_and_flush();
+                if (cmd->blit.w > 0 && cmd->blit.h > 0) {
+                    // Partial update
+                    window_mark_dirty_rect(w, cmd->blit.x, cmd->blit.y, cmd->blit.w, cmd->blit.h);
+                } else {
+                    // Full update
+                    window_mark_dirty(w);
+                }
               } else if(cmd->type == SULU_CMD_CLOSE) {
                 close_window(w);
                 closed = 1;
                 break; // Window is gone
               } else if(cmd->type == SULU_CMD_SWAP) {
                 if(w->shm->flags & SULU_FLAG_DOUBLE_BUFFER) {
-                  // Toggle front buffer index
-                  w->shm->front_buf = (w->shm->front_buf == 0) ? 1 : 0;
-                  // Update Sulu's view to the new front buffer
+                  // Buffer toggle is now handled CLIENT SIDE to fix flickering.
+                  // We just update our local pointer and mark full dirty.
                   w->buf = sulu_front_pixels(w->shm);
-                  // Mark full window dirty to redraw from new buffer
                   window_mark_dirty(w);
                 }
               }
