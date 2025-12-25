@@ -46,6 +46,15 @@ int gpu_flush_rect(int x, int y, int w, int h);
 int yield(void);
 void flush_console(void);
 
+// Process info structure (for procinfo syscall)
+struct procinfo {
+  int pid;
+  char name[16];
+  int state;      // 0=unused, 1=used, 2=sleeping, 3=runnable, 4=running, 5=zombie
+  uint64 sz;      // Memory size
+};
+int procinfo(struct procinfo*, int);
+
 
 
 // ulib.c

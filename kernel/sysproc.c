@@ -396,3 +396,48 @@ sys_flush_console(void)
   console_flush();
   return 0;
 }
+
+// Process info structure (must match user/user.h)
+struct procinfo {
+  int pid;
+  char name[16];
+  int state;      // 0=unused, 1=used, 2=sleeping, 3=runnable, 4=running, 5=zombie
+  uint64 sz;      // Memory size
+};
+
+uint64
+sys_procinfo(void)
+{
+  uint64 addr;
+  int nmax;
+  
+  argaddr(0, &addr);
+  argint(1, &nmax);
+  
+  if(nmax <= 0)
+    return -1;
+  
+  struct proc *p;
+  struct procinfo info;
+  int count = 0;
+  
+  for(p = proc; p < &proc[NPROC] && count < nmax; p++){
+    acquire(&p->lock);
+    if(p->state != UNUSED){
+      info.pid = p->pid;
+      memmove(info.name, p->name, sizeof(info.name));
+      info.state = p->state;
+      info.sz = p->sz;
+      release(&p->lock);
+      
+      if(copyout(myproc()->pagetable, addr + count * sizeof(info), 
+                  (char*)&info, sizeof(info)) < 0)
+        return -1;
+      count++;
+    } else {
+      release(&p->lock);
+    }
+  }
+  
+  return count;
+}

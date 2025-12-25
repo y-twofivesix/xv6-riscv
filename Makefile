@@ -151,7 +151,8 @@ UPROGS=\
 	$U/_shmtest\
 	$U/_bouncing_ball\
 	$U/_size_test\
-	$U/_terminal
+	$U/_terminal\
+	$U/_procs
 
 .PHONY: fs.img
 fs.img: mkfs/mkfs README INFO $(UPROGS)

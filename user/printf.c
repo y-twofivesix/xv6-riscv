@@ -82,7 +82,7 @@ sprintint(int xx, int base, int sgn, char * buf)
   int j = 0;
   while(--i >= 0)
     buf[j++] = rbuf[i];
-
+  buf[j] = '\0';  // Null-terminate!
 }
 
 static void
@@ -235,7 +235,7 @@ vsprintf(char * dest, const char *fmt, va_list ap)
         char intbuf[16];
         sprintint(va_arg(ap, int), 10, 1, intbuf);
         strcat(buf, intbuf);
-        j++;
+        j = strlen(buf);
       } else if(c0 == 'l' && c1 == 'd'){
         char intbuf[16];
         sprintint(va_arg(ap, uint64), 10, 1, intbuf);
@@ -250,6 +250,7 @@ vsprintf(char * dest, const char *fmt, va_list ap)
         char intbuf[16];
         sprintint(va_arg(ap, int), 10, 0, intbuf);
         strcat(buf, intbuf);
+        j = strlen(buf);
       } else if(c0 == 'l' && c1 == 'u'){
         char intbuf[16];
         sprintint(va_arg(ap, uint64), 10, 0, intbuf);
@@ -262,8 +263,9 @@ vsprintf(char * dest, const char *fmt, va_list ap)
         i += 2;
       } else if(c0 == 'x'){
         char intbuf[16];
-        sprintint(va_arg(ap, int), 16, 0, buf);
+        sprintint(va_arg(ap, int), 16, 0, intbuf);
         strcat(buf, intbuf);
+        j = strlen(buf);
       } else if(c0 == 'l' && c1 == 'x'){
         char intbuf[16];
         sprintint(va_arg(ap, uint64), 16, 0, buf);
