@@ -611,7 +611,11 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
     while(curr->next) curr = curr->next;
     curr->next = win;
   }
+  
+  // Handle focus transfer
+  Window *old_focus = focus_win;
   focus_win = win;
+  if(old_focus) window_mark_dirty(old_focus); // Redraw old window to show it's unfocused
   return win;
 }
 

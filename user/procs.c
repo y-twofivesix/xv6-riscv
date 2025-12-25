@@ -82,9 +82,13 @@ void draw_row(int row, struct procinfo *p, int is_selected) {
   if(p->state >= 0 && p->state <= 5)
     draw_str(160, y + 4, state_names[p->state], TEXT_COLOR);
   
-  // Memory (in KB)
+  // Memory (in KB or MB)
   memset(buf, 0, sizeof(buf));
-  sprintf(buf, "%dK", (int)(p->sz / 1024));
+  int kb = (int)(p->sz / 1024);
+  if(kb > 999)
+    sprintf(buf, "%dM", kb / 1024);
+  else
+    sprintf(buf, "%dK", kb);
   draw_str(240, y + 4, buf, TEXT_COLOR);
   
   // Kill button (only for non-essential processes)
