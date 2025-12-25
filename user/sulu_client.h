@@ -75,6 +75,7 @@ sulu_connect(int shm_key, int width, int height) {
 #define SULU_EV_FOCUS        4   // Window focus gained/lost
 #define SULU_EV_CLOSE        5   // User clicked close button
 #define SULU_EV_MAXIMIZE     6   // User clicked maximize button
+#define SULU_EV_MOUSE_WHEEL  7   // Mouse wheel scroll (value = delta)
 
 // Command structure (client writes these)
 struct sulu_cmd {

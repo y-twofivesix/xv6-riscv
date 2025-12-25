@@ -1027,10 +1027,23 @@ main(int argc, char *argv[])
                           .code = ev.code,
                           .value = ev.value
                       };
-                      sulu_event_push(focus_win->shm, &sev);
-                  }
-              }
-          }
+                       sulu_event_push(focus_win->shm, &sev);
+                   }
+               } else if(ev.type == EV_REL){
+                   if(ev.code == REL_WHEEL){
+                       // Forward scroll to focused window
+                       if(focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm){
+                           struct sulu_event sev = {
+                               .type = SULU_EV_MOUSE_WHEEL,
+                               .value = (int)ev.value, // Delta
+                               .x = mouse_x,
+                               .y = mouse_y
+                           };
+                           sulu_event_push(focus_win->shm, &sev);
+                       }
+                   }
+               }
+           }
       }
       
       if(did_work){

@@ -55,12 +55,14 @@ char keymap_shift[128] = {
 
 // Terminal state
 typedef struct {
-  char display[100][160]; // Max size for SULU_SCREEN_W/H
-  int cursor_row;
+  char display[100][160]; // 100 rows scrollback
+  int cursor_row;         // Current insertion row (absolute)
   int cursor_col;
   int esc_state;
-  int input_start_row;
+  int input_start_row;    // Absolute row where input started
   int input_start_col;
+  int scroll_offset;      // How many rows we are scrolled UP (0 = bottom)
+  int active_rows;        // Total rows containing data
   char ansi_buf[16];
   int ansi_idx;
 } Terminal;
@@ -89,11 +91,15 @@ void draw_char_at(int px, int py, char ch, uint color) {
   sulu_draw_char(shm, px, py, ch, color);
 }
 
-// Redraw a single line
+// Redraw a single absolute row to its relative screen position
 void redraw_line(int r) {
-  int base_py = PADDING + r * (CHAR_H + LINE_SPACING);
+  // Check if row is within current visible window
+  int screen_row = r - (term.active_rows > g_rows ? term.active_rows - g_rows : 0) + term.scroll_offset;
+  if(screen_row < 0 || screen_row >= g_rows) return;
+
+  int base_py = PADDING + screen_row * (CHAR_H + LINE_SPACING);
   
-  // Clear line first (full width, include line spacing)
+  // Clear line first
   sulu_fill_rect(shm, 0, base_py, WIN_W, CHAR_H + LINE_SPACING, TERM_BACK);
   
   int px = PADDING;
@@ -102,7 +108,6 @@ void redraw_line(int r) {
     char ch = term.display[r][c];
     
     if (r == term.cursor_row && c == term.cursor_col) {
-      // Draw cursor {ch}
       draw_char_at(px, py, '{', CURSOR_COLOR);
       px += CHAR_W;
       if (ch != 0 && ch != ' ') {
@@ -114,6 +119,20 @@ void redraw_line(int r) {
     } else {
       if (ch != 0) draw_char_at(px, py, ch, TEXT_COLOR);
       px += CHAR_W;
+    }
+  }
+}
+
+// Redraw everything
+void redraw_all() {
+  sulu_clear(shm, TERM_BACK);
+  int start_abs = (term.active_rows > g_rows ? term.active_rows - g_rows : 0) - term.scroll_offset;
+  if (start_abs < 0) start_abs = 0;
+  
+  for (int i = 0; i < g_rows; i++) {
+    int abs_row = start_abs + i;
+    if (abs_row < 100) {
+      redraw_line(abs_row);
     }
   }
 }
@@ -136,7 +155,13 @@ void term_putc(char c) {
       int old_row = term.cursor_row;
       term.cursor_row++;
       term.cursor_col = 0;
-      redraw_line(old_row);
+      
+      // Auto-scroll to bottom if view was at the bottom
+      if (term.scroll_offset == 0) {
+          redraw_all();
+      } else {
+          redraw_line(old_row);
+      }
     } else if (c == '\r') {
       term.cursor_col = 0;
     } else if (c == '\b') {
@@ -165,15 +190,17 @@ void term_putc(char c) {
     } else {
       // End of sequence
       if (c == 'J') {
-        // Clear screen
-        for (int r = 0; r < g_rows; r++) {
+        // Clear entire buffer
+        for (int r = 0; r < 100; r++) {
           for (int co = 0; co < g_cols; co++) {
             term.display[r][co] = ' ';
-            draw_char(r, co, ' ', TEXT_COLOR);
           }
         }
+        term.scroll_offset = 0;
+        term.active_rows = g_rows;
         term.cursor_row = 0;
         term.cursor_col = 0;
+        redraw_all();
       } else if (c == 'K') {
         // Clear to end of line
         for (int co = term.cursor_col; co < g_cols; co++) {
@@ -205,25 +232,29 @@ void term_putc(char c) {
     }
   }
   
-  // Handle line wrap
+  // Handle scroll / Wrap
   if (term.cursor_col >= g_cols) {
     term.cursor_col = 0;
     term.cursor_row++;
   }
   
-  // Handle scroll
-  if (term.cursor_row >= g_rows) {
-    for (int r = 1; r < g_rows; r++) {
+  if (term.cursor_row >= 100) {
+    // End of buffer, shift everything up
+    for (int r = 1; r < 100; r++) {
       for (int co = 0; co < g_cols; co++) {
         term.display[r - 1][co] = term.display[r][co];
-        draw_char(r - 1, co, term.display[r - 1][co], TEXT_COLOR);
       }
     }
     for (int co = 0; co < g_cols; co++) {
-      term.display[g_rows - 1][co] = ' ';
-      draw_char(g_rows - 1, co, ' ', TEXT_COLOR);
+      term.display[99][co] = ' ';
     }
-    term.cursor_row = g_rows - 1;
+    term.cursor_row = 99;
+    term.input_start_row--;
+    if(term.input_start_row < 0) term.input_start_row = 0;
+  }
+  
+  if (term.cursor_row >= term.active_rows) {
+    term.active_rows = term.cursor_row + 1;
   }
 }
 
@@ -371,6 +402,13 @@ main(int argc, char *argv[])
 
       if (ev.type == SULU_EV_KEY && ev.value == 1) {
         int code = ev.code;
+
+        // Scroll to bottom on any keypress if scrolled up
+        if (term.scroll_offset > 0) {
+          term.scroll_offset = 0;
+          redraw_all();
+          sulu_blit(shm, 0, 0, WIN_W, WIN_H);
+        }
         
         // Handle modifier keys
         if (code == KEY_LEFTSHIFT || code == KEY_RIGHTSHIFT) {
@@ -417,7 +455,7 @@ main(int argc, char *argv[])
           }
           write(shell_fd_in, &ch, 1);
           term_putc(ch);  // Echo
-                  sulu_blit(shm, 0, 0, WIN_W, WIN_H);
+          sulu_blit(shm, 0, 0, WIN_W, WIN_H);
         }
       } else if (ev.type == SULU_EV_KEY && ev.value == 0) {
         int code = ev.code;
@@ -428,9 +466,22 @@ main(int argc, char *argv[])
           ctrl_pressed = 0;
         }
       }
-      // Right-click - fill screen green (test)
-      else if (ev.type == SULU_EV_MOUSE_BTN && ev.code == 0x111) {  // BTN_RIGHT
-
+      // Mouse Wheel - Scrolling
+      else if (ev.type == SULU_EV_MOUSE_WHEEL) {
+        int delta = ev.value;
+        if (delta > 0) { // Scroll UP
+          if (term.scroll_offset < term.active_rows - g_rows) {
+            term.scroll_offset++;
+            redraw_all();
+            sulu_blit(shm, 0, 0, WIN_W, WIN_H);
+          }
+        } else if (delta < 0) { // Scroll DOWN
+          if (term.scroll_offset > 0) {
+            term.scroll_offset--;
+            redraw_all();
+            sulu_blit(shm, 0, 0, WIN_W, WIN_H);
+          }
+        }
       }
     }
     
