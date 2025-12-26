@@ -109,6 +109,7 @@ struct sulu_event {
     int code;               // Key code or button
     int value;              // 1=press, 0=release, or delta
     int x, y;               // Mouse position (for mouse events)
+    int rx, ry;             // Relative (to focused window) mouse position (for mouse events)
 };
 
 // Ring buffer header (used for both cmd and event rings)

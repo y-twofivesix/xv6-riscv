@@ -1318,7 +1318,15 @@ main(int argc, char *argv[])
                                        }
                                   } else if(hit->type == WIN_TYPE_CLIENT && hit->shm) {
                                       // Content area click
-                                      struct sulu_event sev = { .type = SULU_EV_MOUSE_BTN, .code = BTN_LEFT, .value = 1, .x = mouse_x, .y = mouse_y };
+                                      struct sulu_event sev = { 
+                                        .type = SULU_EV_MOUSE_BTN, 
+                                        .code = BTN_LEFT, 
+                                        .value = 1, 
+                                        .x = mouse_x, 
+                                        .y = mouse_y,
+                                        .rx = mouse_x - hit->x,
+                                        .ry = mouse_y - hit->y
+                                    };
                                       sulu_event_push(hit->shm, &sev);
                                   }
                               }

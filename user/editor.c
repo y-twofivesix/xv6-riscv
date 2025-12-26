@@ -43,6 +43,7 @@ struct EditorState {
     char filename[64];
     int dirty; // Has unsaved changes
     int shift_pressed;
+    int ctrl_pressed;
 } es;
 
 // Font metrics
@@ -62,6 +63,34 @@ void render();
 void handle_input(struct sulu_event *e);
 void load_file(char *path);
 void save_file();
+void copy_selection();
+void request_paste();
+void on_paste();
+
+#define SAVE_BTN_X (width - 60)
+#define SAVE_BTN_W 50
+#define SAVE_BTN_Y (height - STATUS_H + 2)
+#define SAVE_BTN_H 16
+
+
+// Scancode Map (Set 1)
+static char scancode_map[] = {
+  0,  27, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b', /* 14=BS */
+  '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n', /* 28=Enter */
+  0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, /* 42=LShift */
+  '\\', 'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0, '*', 0, ' ', /* 57=Space */
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '0', '.' 
+};
+
+static char scancode_map_shift[] = {
+  0,  27, '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '\b',
+  '\t', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '\n',
+  0, 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '\"', '~', 0,
+  '|', 'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', 0, '*', 0, ' ',
+  0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+  '7', '8', '9', '-', '4', '5', '6', '+', '1', '2', '3', '0', '.'
+};
 
 
 void main(int argc, char *argv[])
@@ -85,23 +114,23 @@ void main(int argc, char *argv[])
   shm = win.shm;
   strcpy(shm->title, "Text Editor");
   
+  sleep(1); // Wait for window to be ready
   render();
   
   while(1){
-      // Check for events
-      if(shm->event_ring.head != shm->event_ring.tail){
-          struct sulu_event *e = &shm->event_buf[shm->event_ring.tail % SULU_EVENT_RING_SIZE];
+      // Drain entire event queue
+      while (sulu_event_available(shm)) {
+          struct sulu_event ev;
+          sulu_event_pop(shm, &ev);
           
-          if(e->type == SULU_EV_KEY){
-              handle_input(e);
-          } else if(e->type == SULU_EV_CLOSE){
+          if(ev.type == SULU_EV_KEY || ev.type == SULU_EV_MOUSE_BTN || ev.type == SULU_EV_PASTE){
+              handle_input(&ev);
+          } else if(ev.type == SULU_EV_CLOSE){
                exit(0);
           }
-          
-          shm->event_ring.tail++;
       }
       
-      sleep(1); 
+      usleep(SULU_DEFAULT_FRAME_USEC); 
   }
 }
 
@@ -173,6 +202,12 @@ void render() {
     // Custom formatting without snprintf
     strcpy(status, es.filename);
     int len = strlen(status);
+    
+    // Draw Save Button
+    uint32 btn_col = es.dirty ? 0xFF00AA00 : 0xFF555555;
+    fill_rect(SAVE_BTN_X, SAVE_BTN_Y, SAVE_BTN_W, SAVE_BTN_H, btn_col);
+    draw_text(SAVE_BTN_X + 10, SAVE_BTN_Y + 2, "Save", 0xFFFFFFFF);
+    
     strcpy(status + len, "   Ln ");
     len = strlen(status);
     // itoa-ish
@@ -341,13 +376,54 @@ void merge_line() {
 
 // Input Handling
 void handle_input(struct sulu_event *e) {
+    // 1. Mouse Button
+    if(e->type == SULU_EV_MOUSE_BTN) {
+        if(e->value == 1) { // Mouse Down
+            // Check Save Button
+            int mx = e->rx; // relative coords
+            int my = e->ry - STATUS_H; // relative coords (subtract status bar height)
+            if((mx >= SAVE_BTN_X && mx <= SAVE_BTN_X + SAVE_BTN_W) &&
+               (my >= SAVE_BTN_Y && my <= SAVE_BTN_Y + SAVE_BTN_H)) {
+               save_file();
+               return;
+            }
+            
+            // Handle clicking in text area to move cursor?
+            // (Optional bonus: map mouse to cx/cy)
+        }
+        return;
+    }
+    
+    // 2. Paste Event
+    if(e->type == SULU_EV_PASTE) {
+        on_paste();
+        return;
+    }
+
+    // 3. Key Events
+    if(e->type != SULU_EV_KEY) return;
+
     int key = e->code;
     
     // Control Keys
-    if(key == 42 || key == 54) { // Shift
+    if(key == 0x2A || key == 0x36) { // Shift L(42) R(54) - wait, map has them at array indices.
+        // Standard scan set 1: LShift=42(0x2A), RShift=54(0x36)
+        // My map has 42=0.
+    }
+    
+    // Handle modifier press/release
+    if(key == KEY_LEFTSHIFT || key == KEY_RIGHTSHIFT){
         es.shift_pressed = (e->value == 1 || e->value == 2);
         return;
     }
+    if(key == KEY_LEFTCTRL || key == 97){ // 97 is Right Ctrl (scancode set 1 usually)
+        es.ctrl_pressed = (e->value == 1 || e->value == 2);
+        return;
+    }
+    
+    // Ignore keyups for other keys
+    if(e->value == 0) return;
+
     
     // Reset selection if moving without shift
     if((key == KEY_UP || key == KEY_DOWN || key == KEY_LEFT || key == KEY_RIGHT) && !es.shift_pressed && es.selecting){
@@ -381,6 +457,7 @@ void handle_input(struct sulu_event *e) {
         }
     }
     else if(key == KEY_RIGHT) {
+        printf("es.cx: %d line len: %d\n", es.cx, es.lines[es.cy].len);
         if(es.cx < es.lines[es.cy].len) es.cx++;
         else if(es.cy < es.num_lines - 1) {
             es.cy++;
@@ -393,10 +470,10 @@ void handle_input(struct sulu_event *e) {
         es.sel_ex = es.cx;
         es.sel_ey = es.cy;
     }
-    else if(key == '\n' || key == '\r' || key == KEY_ENTER) {
+    else if(key == KEY_ENTER) { // Enter
         split_line();
     }
-    else if(key == 127 || key == 8) { // Backspace
+    else if(key == 14) { // Backspace (Scancode 14)
         if(es.cx > 0) {
             es.cx--;
             delete_char();
@@ -404,20 +481,37 @@ void handle_input(struct sulu_event *e) {
             merge_line();
         }
     }
-    else if(key == 17) { // Ctrl+Q
+    else if(key == 15) { // Tab
+        // Insert 4 spaces
+        for(int i=0; i<4; i++) insert_char(' ');
+    }
+    else if(es.ctrl_pressed && key == 16) { // Ctrl+Q
         exit(0);
     }
-    else if(key == 19) { // Ctrl+S
+    else if(es.ctrl_pressed && key == 31) { // Ctrl+S (S is 31)
         save_file();
     }
-    else if(key >= 32 && key <= 126) {
-        insert_char((char)key);
+    else if(es.ctrl_pressed && key == 46) { // Ctrl+C
+        copy_selection();
+    }
+    else if(es.ctrl_pressed && key == 47) { // Ctrl+V
+        request_paste();
+    }
+    // Char input
+    else {
+        char c = 0;
+        if(key > 0 && key < sizeof(scancode_map)) {
+            if(es.shift_pressed) c = scancode_map_shift[key];
+            else c = scancode_map[key];
+        }
+        
+        if(c != 0) insert_char(c);
     }
     
     // Scroll View
     if(es.cy < es.scroll_y) es.scroll_y = es.cy;
     if(es.cy >= es.scroll_y + es.view_h) es.scroll_y = es.cy - es.view_h + 1;
-    
+
     render();
 }
 
@@ -467,6 +561,64 @@ void load_file(char *path) {
     }
     close(fd);
     es.num_lines = line_idx + 1;
+}
+
+// Clipboard Helpers
+void copy_selection() {
+    if(!es.selecting) return;
+    
+    // Normalize bounds
+    int sy = es.sel_sy; int sx = es.sel_sx;
+    int ey = es.sel_ey; int ex = es.sel_ex;
+    
+    if(sy > ey || (sy == ey && sx > ex)) {
+        int ty = sy; sy = ey; ey = ty;
+        int tx = sx; sx = ex; ex = tx;
+    }
+    
+    char *buf = shm->clipboard;
+    int ptr = 0;
+    
+    for(int i=sy; i<=ey; i++){
+        struct Line *l = &es.lines[i];
+        int start = (i == sy) ? sx : 0;
+        int end = (i == ey) ? ex : l->len;
+        
+        if(end > l->len) end = l->len;
+        if(start > end) start = end;
+        
+        int len = end - start;
+        if(ptr + len + 1 >= 2048) break; // Overflow protection
+        
+        memmove(buf + ptr, l->data + start, len);
+        ptr += len;
+        
+        if(i != ey && ptr < 2047) buf[ptr++] = '\n';
+    }
+    buf[ptr] = 0;
+    shm->clipboard_len = ptr;
+    
+    // Send command
+    struct sulu_cmd cmd;
+    cmd.type = SULU_CMD_CLIP_SET;
+    sulu_cmd_push(shm, &cmd);
+}
+
+void request_paste() {
+    struct sulu_cmd cmd;
+    cmd.type = SULU_CMD_CLIP_GET;
+    sulu_cmd_push(shm, &cmd);
+}
+
+void on_paste() {
+    char *buf = shm->clipboard;
+    int len = shm->clipboard_len;
+    if(len <= 0) return;
+    
+    for(int i=0; i<len; i++){
+        insert_char(buf[i]);
+    }
+    render();
 }
 
 
