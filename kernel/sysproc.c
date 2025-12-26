@@ -185,11 +185,13 @@ sys_shmget(void)
 
   acquire(&shm_table.lock);
   
-  // 1. Search for existing key
-  for(int i=0; i<MAX_SHM; i++){
-    if(shm_table.used[i] && shm_table.keys[i] == key){
-      release(&shm_table.lock);
-      return i; // Return shmid
+  // 1. Search for existing key (unless key is 0, which means IPC_PRIVATE)
+  if(key != 0) {
+    for(int i=0; i<MAX_SHM; i++){
+      if(shm_table.used[i] && shm_table.keys[i] == key){
+        release(&shm_table.lock);
+        return i; // Return shmid
+      }
     }
   }
   

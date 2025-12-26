@@ -593,8 +593,7 @@ void close_window(Window *w) {
     if(!w) return;
 
     // 1. Mark dirty (so area gets redrawn)
-    int extra = ENABLE_SHADOWS ? SHADOW_OFFSET : 0;
-    mark_dirty(w->x, w->y, w->w + extra, w->h + extra);
+    window_mark_dirty(w);
 
     // 2. Unlink from list
     if(windows == w) {
@@ -620,7 +619,7 @@ void close_window(Window *w) {
 Window*
 spawn_client_window(int client_pid, int shm_key, int width, int height)
 {
-  printf("sulu: SPAWN pid=%d key=%d w=%d h=%d\n", client_pid, shm_key, width, height);
+//   printf("sulu: SPAWN pid=%d key=%d w=%d h=%d\n", client_pid, shm_key, width, height);
   
   // Map the client's shared memory
   int shmid = shmget(shm_key, 0);  // Use existing
@@ -630,7 +629,7 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
   }
   
   struct sulu_window_shm *shm = (struct sulu_window_shm*)shmat(shmid, 0);
-  printf("sulu: shmat returned %p for shmid=%d\n", shm, shmid);
+//   printf("sulu: shmat returned %p for shmid=%d\n", shm, shmid);
   if(shm == (void*)-1) {
     printf("sulu: failed to attach client shm\n");
     return 0;
@@ -652,8 +651,8 @@ spawn_client_window(int client_pid, int shm_key, int width, int height)
   win->shmid = shmid;
   win->shm = shm;
   
-  printf("sulu: window id=%d shm=%p buf=%p heap=%p\n", 
-         win->id, shm, win->buf, sbrk(0));
+//   printf("sulu: window id=%d shm=%p buf=%p heap=%p\n", 
+//          win->id, shm, win->buf, sbrk(0));
   
   // Link into window list (metadata already set by client in many cases)
   shm->win_id = win->id;
@@ -887,51 +886,8 @@ void draw_system_bar(Rect *clip) {
 void
 composite()
 {
-  // Clear to background
-  for(int i = 0; i < SCREEN_W * SCREEN_H; i++) fb[i] = BACK_COLOR;
-  
-  // Draw windows
-  Window *w = windows;
-  while(w){
-      int x_end = w->x + w->w;
-      int y_end = w->y + w->h;
-      if(x_end > SCREEN_W) x_end = SCREEN_W;
-      if(y_end > SCREEN_H) y_end = SCREEN_H;
-      
-      for(int y = w->y, dy = 0; y < y_end; y++, dy++){
-          if(y < 0) continue;
-          for(int x = w->x, dx = 0; x < x_end; x++, dx++){
-               if(x < 0) continue;
-               if(w->type == WIN_TYPE_CLIENT) {
-                   // Client window: title bar (TITLE_BAR_HEIGHT) + client buffer
-                   if(dy < TITLE_BAR_HEIGHT) {
-                       uint color = (w == focus_win) ? FOCUS_COLOR : UNFOCUS_COLOR;
-                       fb[y * SCREEN_W + x] = color;
-                   } else {
-                       int client_y = dy - TITLE_BAR_HEIGHT;
-                       fb[y * SCREEN_W + x] = w->buf[client_y * w->w + dx];
-                   }
-               } else {
-                   fb[y * SCREEN_W + x] = w->buf[dy * w->w + dx];
-               }
-          }
-      }
-      w = w->next;
-  }
-  
-  // Draw System Bar (on top of windows, below cursor)
-  draw_system_bar(0);
-  
-  // Draw cursor on top (highest z-index)
-  for(int dy = 0; dy < 10; dy++){
-      for(int dx = 0; dx < 10; dx++){
-          int px = cursor_rect.x + dx;
-          int py = cursor_rect.y + dy;
-          if(px >= 0 && px < SCREEN_W && py >= 0 && py < SCREEN_H){
-              fb[py * SCREEN_W + px] = CURSOR_COLOR;
-          }
-      }
-  }
+    Rect r = {0, 0, SCREEN_W, SCREEN_H};
+    composite_region(&r);
 }
 
 Window* find_window_at(int x, int y){
@@ -1058,8 +1014,7 @@ main(int argc, char *argv[])
               if(new_win) {
                 window_mark_dirty(new_win);
                 // Mark system bar dirty to show new button
-                if(sysbar.type == WIDGET_TYPE_SYSBAR)
-                     mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h);
+                mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h);
               }
           } else if(msg.type == 2) { // SULU_EVENT_DISCONNECT
               // Find and close all windows for this PID
@@ -1069,13 +1024,12 @@ main(int argc, char *argv[])
                   if(w->type == WIN_TYPE_CLIENT && w->client_pid == msg.pid) {
                       close_window(w);
                       // Mark system bar dirty to remove button
-                      if(sysbar.type == WIDGET_TYPE_SYSBAR)
-                          mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h);
+                      mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h);
                   }
                   w = next_w;
               }
               // Force full redraw to be safe
-              composite(); 
+              // composite(); 
               gpu_flush();
           }
  else if(msg.type == 4) { // SULU_EVENT_RESIZE
