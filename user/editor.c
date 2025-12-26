@@ -44,6 +44,7 @@ struct EditorState {
     int dirty; // Has unsaved changes
     int shift_pressed;
     int ctrl_pressed;
+    int mouse_down;
 } es;
 
 // Font metrics
@@ -113,6 +114,7 @@ void main(int argc, char *argv[])
   }
   shm = win.shm;
   strcpy(shm->title, "Text Editor");
+  shm->cursor_type = SULU_CURSOR_IBEAM;
   
   sleep(1); // Wait for window to be ready
   render();
@@ -123,7 +125,8 @@ void main(int argc, char *argv[])
           struct sulu_event ev;
           sulu_event_pop(shm, &ev);
           
-          if(ev.type == SULU_EV_KEY || ev.type == SULU_EV_MOUSE_BTN || ev.type == SULU_EV_PASTE){
+          
+          if(ev.type == SULU_EV_KEY || ev.type == SULU_EV_MOUSE_BTN || ev.type == SULU_EV_PASTE || ev.type == SULU_EV_MOUSE_MOVE){
               handle_input(&ev);
           } else if(ev.type == SULU_EV_CLOSE){
                exit(0);
@@ -380,16 +383,71 @@ void handle_input(struct sulu_event *e) {
     if(e->type == SULU_EV_MOUSE_BTN) {
         if(e->value == 1) { // Mouse Down
             // Check Save Button
-            int mx = e->rx; // relative coords
-            int my = e->ry - STATUS_H; // relative coords (subtract status bar height)
+            int mx = e->rx; 
+            int my = e->ry - STATUS_H; 
+            // Y relative to window 0,0.
+            // render() uses simple Y.
+            
             if((mx >= SAVE_BTN_X && mx <= SAVE_BTN_X + SAVE_BTN_W) &&
                (my >= SAVE_BTN_Y && my <= SAVE_BTN_Y + SAVE_BTN_H)) {
                save_file();
                return;
             }
             
-            // Handle clicking in text area to move cursor?
-            // (Optional bonus: map mouse to cx/cy)
+            // Text Area Click
+            if(e->ry < height - STATUS_H) {
+                 es.mouse_down = 1;
+                 
+                 // Map to character
+                 int line_idx = (e->ry / CHAR_H) + es.scroll_y;
+                 int col_idx = (e->rx - (GUTTER_W + 5)) / CHAR_W;
+                 
+                 if(line_idx < 0) line_idx = 0;
+                 if(line_idx >= es.num_lines) line_idx = es.num_lines - 1;
+                 
+                 struct Line *l = &es.lines[line_idx];
+                 if(col_idx < 0) col_idx = 0;
+                 if(col_idx > l->len) col_idx = l->len;
+                 
+                 es.cx = col_idx;
+                 es.cy = line_idx;
+                 
+                 // Start Selection
+                 es.selecting = 1;
+                 es.sel_sx = es.cx; es.sel_sy = es.cy;
+                 es.sel_ex = es.cx; es.sel_ey = es.cy;
+                 
+                 render();
+            }
+        } else { // Mouse Up
+            es.mouse_down = 0;
+            // If empty selection, disable
+            if(es.sel_sx == es.sel_ex && es.sel_sy == es.sel_ey) {
+                es.selecting = 0;
+            }
+        }
+        return;
+    }
+    
+    // 1.5 Mouse Move (Drag)
+    if(e->type == SULU_EV_MOUSE_MOVE) {
+        if(es.mouse_down) {
+             int line_idx = (e->ry / CHAR_H) + es.scroll_y;
+             int col_idx = (e->rx - (GUTTER_W + 5)) / CHAR_W;
+                 
+             if(line_idx < 0) line_idx = 0;
+             if(line_idx >= es.num_lines) line_idx = es.num_lines - 1;
+             
+             struct Line *l = &es.lines[line_idx];
+             if(col_idx < 0) col_idx = 0;
+             if(col_idx > l->len) col_idx = l->len;
+             
+             es.cx = col_idx;
+             es.cy = line_idx;
+             
+             es.sel_ex = es.cx;
+             es.sel_ey = es.cy;
+             render();
         }
         return;
     }
@@ -404,7 +462,6 @@ void handle_input(struct sulu_event *e) {
     if(e->type != SULU_EV_KEY) return;
 
     int key = e->code;
-    
     // Control Keys
     if(key == 0x2A || key == 0x36) { // Shift L(42) R(54) - wait, map has them at array indices.
         // Standard scan set 1: LShift=42(0x2A), RShift=54(0x36)
@@ -457,7 +514,6 @@ void handle_input(struct sulu_event *e) {
         }
     }
     else if(key == KEY_RIGHT) {
-        printf("es.cx: %d line len: %d\n", es.cx, es.lines[es.cy].len);
         if(es.cx < es.lines[es.cy].len) es.cx++;
         else if(es.cy < es.num_lines - 1) {
             es.cy++;
@@ -470,7 +526,8 @@ void handle_input(struct sulu_event *e) {
         es.sel_ex = es.cx;
         es.sel_ey = es.cy;
     }
-    else if(key == KEY_ENTER) { // Enter
+    
+    if(key == KEY_ENTER) { // Enter
         split_line();
     }
     else if(key == 14) { // Backspace (Scancode 14)

@@ -1111,6 +1111,7 @@ main(int argc, char *argv[])
               } else if(cmd->type == SULU_CMD_CLIP_SET) {
                 // Copy from client to global clipboard
                 int len = w->shm->clipboard_len;
+                // printf("sulu: CLIP_SET len=%d\n", len);
                 if(len > 2048) len = 2048;
                 if(len < 0) len = 0;
                 memmove(global_clipboard, w->shm->clipboard, len);
@@ -1118,6 +1119,7 @@ main(int argc, char *argv[])
               } else if(cmd->type == SULU_CMD_CLIP_GET) {
                 // Copy from global clipboard to client
                 int len = global_clip_len;
+                // printf("sulu: CLIP_GET len=%d\n", len);
                 memmove(w->shm->clipboard, global_clipboard, len);
                 w->shm->clipboard_len = len;
                 
@@ -1204,7 +1206,9 @@ main(int argc, char *argv[])
                               struct sulu_event sev = {
                                   .type = SULU_EV_MOUSE_MOVE,
                                   .x = mouse_x,
-                                  .y = mouse_y
+                                  .y = mouse_y,
+                                  .rx = mouse_x - focus_win->x,
+                                  .ry = mouse_y - focus_win->y
                               };
                               sulu_event_push(focus_win->shm, &sev);
                           }
@@ -1334,7 +1338,16 @@ main(int argc, char *argv[])
                       } else {
                           // Mouse Release
                           if(!drag_win && focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm) {
-                              struct sulu_event sev = { .type = SULU_EV_MOUSE_BTN, .code = BTN_LEFT, .value = 0, .x = mouse_x, .y = mouse_y };
+                              struct sulu_event sev = 
+                              { 
+                                .type = SULU_EV_MOUSE_BTN, 
+                                .code = BTN_LEFT, 
+                                .value = 0, 
+                                .x = mouse_x, 
+                                .y = mouse_y,
+                                .rx = mouse_x - focus_win->x,
+                                .ry = mouse_y - focus_win->y
+                              };
                               sulu_event_push(focus_win->shm, &sev);
                           }
                           drag_win = 0;
@@ -1346,7 +1359,11 @@ main(int argc, char *argv[])
                           struct sulu_event sev = {
                               .type = SULU_EV_MOUSE_BTN,
                               .code = BTN_RIGHT,
-                              .value = 1
+                              .value = 1,
+                              .x = mouse_x,
+                              .y = mouse_y,
+                              .rx = mouse_x - focus_win->x,
+                              .ry = mouse_y - focus_win->y
                           };
                           sulu_event_push(focus_win->shm, &sev);
                       }
@@ -1370,7 +1387,11 @@ main(int argc, char *argv[])
                            struct sulu_event sev = {
                                .type = SULU_EV_KEY,
                                .code = ev.code,
-                               .value = ev.value
+                               .value = ev.value,
+                               .x = mouse_x,
+                               .y = mouse_y,
+                               .rx = mouse_x - focus_win->x,
+                               .ry = mouse_y - focus_win->y
                            };
                            sulu_event_push(focus_win->shm, &sev);
                        }
@@ -1383,7 +1404,9 @@ main(int argc, char *argv[])
                                .type = SULU_EV_MOUSE_WHEEL,
                                .value = (int)ev.value, // Delta
                                .x = mouse_x,
-                               .y = mouse_y
+                               .y = mouse_y,
+                               .rx = mouse_x - focus_win->x,
+                               .ry = mouse_y - focus_win->y
                            };
                            sulu_event_push(focus_win->shm, &sev);
                        }
