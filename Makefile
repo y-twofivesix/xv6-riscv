@@ -154,7 +154,8 @@ UPROGS=\
 	$U/_size_test\
 	$U/_terminal\
 	$U/_procs\
-	$U/_fileman
+	$U/_fileman\
+	$U/_editor
 
 .PHONY: fs.img
 fs.img: mkfs/mkfs README INFO $(UPROGS)

@@ -224,11 +224,33 @@ void launch(char *name) {
     if(path[strlen(path)-1] != '/') strcat(path, "/");
     strcat(path, name);
     
+    // Check if file is an ELF executable
+    int fd = open(path, O_RDONLY);
+    int is_elf = 0;
+    if(fd >= 0) {
+        uint magic = 0;
+        if(read(fd, &magic, 4) == 4) {
+            // Check for ELF Magic: 0x7F 'E' 'L' 'F' 
+            // In Little Endian this is 0x464C457F
+            if(magic == 0x464C457F) {
+                is_elf = 1;
+            }
+        }
+        close(fd);
+    }
+    
     int pid = fork();
     if(pid == 0) {
-        char *argv[] = {path, 0};
-        exec(path, argv);
-        printf("fileman: exec failed for %s\n", path);
+        if (is_elf) {
+            char *argv[] = {path, 0};
+            exec(path, argv);
+            printf("fileman: exec failed for %s\n", path);
+        } else {
+            // Fallback to editor for non-executable files
+            char *argv[] = {"editor", path, 0};
+            exec("editor", argv);
+            printf("fileman: failed to launch editor for %s\n", path);
+        }
         exit(1);
     }
 }

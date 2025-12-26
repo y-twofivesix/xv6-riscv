@@ -80,6 +80,20 @@ sulu_connect(int shm_key, int width, int height) {
 #define SULU_EV_MOUSE_WHEEL  7   // Mouse wheel scroll (value = delta)
 #define SULU_EV_PASTE        8   // Clipboard data is ready in shm->clipboard
 
+// Keyboard Scancodes
+#define KEY_ESC 1
+#define KEY_1 2
+#define KEY_E 18
+#define KEY_ENTER 28
+#define KEY_LEFTCTRL 29
+#define KEY_LEFTSHIFT 42
+#define KEY_RIGHTSHIFT 54
+#define KEY_CAPSLOCK 58
+#define KEY_UP 103
+#define KEY_LEFT 105
+#define KEY_RIGHT 106
+#define KEY_DOWN 108
+
 // Command structure (client writes these)
 struct sulu_cmd {
     int type;               // SULU_CMD_*
