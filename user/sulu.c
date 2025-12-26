@@ -944,11 +944,13 @@ int
 main(int argc, char *argv[])
 {
 
-  int shmid = shmget(SHM_FB, 0);
+    int shmid = shmget(SHM_FB, 0);
   if(shmid < 0) exit(1);
   fb = (uint*) shmat(shmid, 0);
   if((uint64)fb == -1) exit(1);
   
+  printf("sulu: main start\n");
+
   // Register as Server by opening /dev/sulu
   // Note: We use O_RDWR.
   int sulu_fd = open("/dev/sulu", O_RDWR);
@@ -956,6 +958,7 @@ main(int argc, char *argv[])
       printf("sulu: failed to open /dev/sulu\n");
       exit(1);
   }
+  printf("sulu: /dev/sulu opened\n");
   
   // Suspension state
   int suspended = 0;
@@ -965,6 +968,7 @@ main(int argc, char *argv[])
   
   int input_fd = open("/dev/input", O_RDONLY);
   if(input_fd < 0) exit(1);
+  printf("sulu: /dev/input opened\n");
   
   // Initialize System Bar Widget
   sysbar.x = 0;
@@ -984,6 +988,7 @@ main(int argc, char *argv[])
     printf("sulu: failed to start terminal\n");
     exit(1);
   }
+  printf("sulu: terminal forked\n");
   
   struct input_event ev;
   // Define message struct locally or via header? 
@@ -996,6 +1001,7 @@ main(int argc, char *argv[])
     int val2;
   };
 
+  printf("sulu: entering main loop\n");
 
   while(1){
       uint64 loop_start = rdtime();
@@ -1003,7 +1009,10 @@ main(int argc, char *argv[])
       
       // 1. Process Window System Events (Connect/Disconnect)
       struct sulu_msg msg;
-      while(read(sulu_fd, &msg, sizeof(msg)) == sizeof(msg)) {
+      while(readavail(sulu_fd) > 0) {
+          int n = read(sulu_fd, &msg, sizeof(msg));
+          if(n != sizeof(msg)) break;
+
           did_work = 1;
           if(msg.type == 1) { // SULU_EVENT_CONNECT
               int pid = msg.pid;
@@ -1036,7 +1045,8 @@ main(int argc, char *argv[])
               // Force full redraw to be safe
               composite(); 
               gpu_flush();
-          } else if(msg.type == 4) { // SULU_EVENT_RESIZE
+          }
+ else if(msg.type == 4) { // SULU_EVENT_RESIZE
               int win_id = msg.val1;
               int new_shmid = msg.val2;
               
@@ -1172,6 +1182,7 @@ main(int argc, char *argv[])
           n = read(input_fd, &ev, sizeof(ev));
           if(n == sizeof(ev)){
               did_work = 1;
+
               if(ev.type == EV_ABS){
                   if(ev.code == ABS_X) mouse_x = (ev.value * SCREEN_W) / 32767;
                   if(ev.code == ABS_Y) mouse_y = (ev.value * SCREEN_H) / 32767;
@@ -1387,6 +1398,7 @@ main(int argc, char *argv[])
            }
       }
       
+
       if(did_work){
           // Use dirty region compositing instead of full screen
           composite_dirty_and_flush();
@@ -1396,6 +1408,7 @@ main(int argc, char *argv[])
           if(elapsed < SULU_FRAME_CYCLES) {
             usleep((SULU_FRAME_CYCLES - elapsed) / 10);
           }
+      } else {
       }
       
       // Yield CPU if idle to allow clients to run

@@ -604,3 +604,32 @@ sys_gpu_flush_rect(void)
   virtio_gpu_flush(x, y, w, h);
   return 0;
 }
+
+uint64
+sys_stat(void)
+{
+  char path[MAXPATH];
+  struct inode *ip;
+  struct stat st;
+  uint64 addr;
+
+  argaddr(1, &addr);
+  if(argstr(0, path, MAXPATH) < 0)
+    return -1;
+    
+  begin_op();
+  if((ip = namei(path)) == 0) {
+      end_op();
+      return -1;
+  }
+
+  ilock(ip);
+  stati(ip, &st);
+  iunlock(ip);
+  iput(ip);
+  end_op();
+
+  if(copyout(myproc()->pagetable, addr, (char*)&st, sizeof(st)) < 0)
+    return -1;
+  return 0;
+}

@@ -32,3 +32,4 @@
 #define SYS_shmdt 31
 #define SYS_flush_console 32
 #define SYS_procinfo 33
+#define SYS_stat 34

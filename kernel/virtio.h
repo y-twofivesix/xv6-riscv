@@ -60,9 +60,10 @@ struct virtq_desc {
 #define VRING_DESC_F_WRITE 2 // device writes (vs read)
 
 // the (entire) avail ring, from the spec.
+// the (entire) avail ring, from the spec.
 struct virtq_avail {
-  uint16 flags; // always zero
-  uint16 idx;   // driver will write ring[idx] next
+  volatile uint16 flags; // always zero
+  volatile uint16 idx;   // driver will write ring[idx] next
   uint16 ring[NUM]; // descriptor numbers of chain heads
   uint16 unused;
 };
@@ -75,8 +76,8 @@ struct virtq_used_elem {
 };
 
 struct virtq_used {
-  uint16 flags; // always zero
-  uint16 idx;   // device increments when it adds a ring[] entry
+  volatile uint16 flags; // always zero
+  volatile uint16 idx;   // device increments when it adds a ring[] entry
   struct virtq_used_elem ring[NUM];
 };
 

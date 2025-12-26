@@ -97,6 +97,7 @@ virtio_input_init(void)
 
   initlock(&input_buffer.lock, "input");
   devsw[INPUT].read = inputread;
+  devsw[INPUT].readavail = inputreadavail;
 
   // Scan for VirtIO Input devices (ID 18)
   for(int i = 0; i < 8; i++){
@@ -234,7 +235,10 @@ virtio_input_intr(void)
 
     acquire(&inp->lock);
 
+
+    
     while(inp->used_idx != inp->used->idx){
+      __sync_synchronize();
       int id = inp->used->ring[inp->used_idx % NUM].id;
       struct virtio_input_event *e = (struct virtio_input_event *)inp->desc[id].addr;
 

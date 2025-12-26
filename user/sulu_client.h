@@ -267,6 +267,12 @@ static inline int sulu_init(struct sulu_window *win, int width, int height, uint
     win->shm->flags = flags;
     win->shm->front_buf = 0;
     
+    // Initialize rings
+    win->shm->cmd_ring.head = 0;
+    win->shm->cmd_ring.tail = 0;
+    win->shm->event_ring.head = 0;
+    win->shm->event_ring.tail = 0;
+    
     // Connect ONLY after metadata is set
     win->fd = sulu_connect(shm_key, width, height);
     if (win->fd < 0) return -1;

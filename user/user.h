@@ -26,6 +26,7 @@ int getpid(void);
 char* sbrk(int);
 int sleep(int);
 int uptime(void);
+int stat(const char*, struct stat*);
 void usleep(uint64);
 
 static inline uint64
@@ -58,7 +59,7 @@ int procinfo(struct procinfo*, int);
 
 
 // ulib.c
-int stat(const char*, struct stat*);
+// int stat(const char*, struct stat*); // Moved to syscalls
 char* strcpy(char*, const char*);
 void *memmove(void*, const void*, int);
 char* strchr(const char*, char c);

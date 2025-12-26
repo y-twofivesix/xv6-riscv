@@ -192,10 +192,9 @@ filereadavail(struct file *f)
   if(f->type == FD_PIPE){
     return pipereadavail(f->pipe);
   } else if(f->type == FD_DEVICE){
-    if(f->major == INPUT){
-        return inputreadavail();
-    }
-    return 1; 
+    if(f->major < 0 || f->major >= NDEV || !devsw[f->major].readavail)
+        return 1; // Default to readable if not implemented
+    return devsw[f->major].readavail();
   }
   return 1;
 }
