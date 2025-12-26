@@ -14,6 +14,10 @@
 extern int gui_active;
 extern struct proc proc[NPROC];
 
+int shm_add_proc(struct proc *p, int shmid);
+void shm_remove_proc(struct proc *p, int shmid);
+void shm_detach(struct proc *p, int shmid, uint64 addr);
+
 struct {
   struct spinlock lock;
   void *pages[MAX_SHM][MAX_SHM_PAGES]; // Array of page pointers for each segment
@@ -330,65 +334,65 @@ sys_shmat(void)
     p->sz = shm_end;
   }
   
+  // Check per-process limit and add to list
+  if(shm_add_proc(p, shmid) < 0){
+      release(&shm_table.lock);
+      return -1; // Process limit reached
+  }
+
   shm_table.refcount[shmid]++; // Attached
   
   release(&shm_table.lock);
   return addr;
 }
 
+// Detach shared memory segment
 uint64
 sys_shmdt(void)
 {
-  int shmid; 
+  int shmid;
   uint64 addr;
+  
+  // Custom arg parsing since shmdt takes (int shmid, void* addr) in our userspace lib,
+  // but standard shmdt is (void* addr).
+  // Wait, usys.pl says shmdt is entry("shmdt"). 
+  // Let's check ulib.c or user code. 
+  // sulu_client.h calls shmdt(shmid, shm).
+  // So syscall takes 2 args.
   
   argint(0, &shmid);
   argaddr(1, &addr);
   
-  if(shmid < 0 || shmid >= MAX_SHM){
-      return -1;
-  }
+  if(shmid < 0 || shmid >= MAX_SHM) return -1;
   
-  acquire(&shm_table.lock);
-  
-  if(!shm_table.used[shmid]){
-      release(&shm_table.lock);
-      return -1;
-  }
-  
-  // Unmap from user page table
   struct proc *p = myproc();
-  int npages = shm_table.npages[shmid];
   
-  // Unmap ONLY if addr is valid
+  // Remove from process list
+  shm_remove_proc(p, shmid);
+  
+  // Create mask for uvmunmap
   if(addr > 0 && addr < MAXVA) {
-      // uvmunmap requires page aligned. 0 => do not free physical pages.
+      acquire(&shm_table.lock); // Need lock to access shm_table.npages
+      if(!shm_table.used[shmid]){ // Check if shmid is still valid
+          release(&shm_table.lock);
+          return -1;
+      }
+      int npages = shm_table.npages[shmid];
+      release(&shm_table.lock);
+
+      // We must manual unmap here because shm_detach assumes address knowledge or not.
+      // But shm_detach logic was: "if addr > 0 ... uvmunmap"
+      // Let's call shm_detach.
+      
+      // Wait, uvmunmap requires page alignment.
+      // shm_detach has the logic commented out in previous step.
+      // I should duplicate the uvmunmap call here for correctness before calling detach.
       uvmunmap(p->pagetable, addr, npages, 0); 
   }
+
+  // Call internal detach (decrements refcount)
+  shm_detach(p, shmid, 0); // addr=0 primarily to skip internal unmap if we did it here
   
-  // Decrement refcount
-  if(shm_table.refcount[shmid] > 0)
-      shm_table.refcount[shmid]--;
-      
-  // Decrement page refcount for each page (mirrors kref in shmat)
-  // kfree decrements refcount; only actually frees when refcount hits 0
-  if(!shm_table.is_static[shmid]){
-      for(int i = 0; i < npages; i++){
-          if(shm_table.pages[shmid][i])
-              kfree(shm_table.pages[shmid][i]);
-      }
-  }
-  
-  // Clean up segment metadata only when no more attachments
-  if(shm_table.refcount[shmid] == 0 && !shm_table.is_static[shmid]){
-      for(int i = 0; i < npages; i++){
-          shm_table.pages[shmid][i] = 0;
-      }
-      shm_table.used[shmid] = 0;
-      shm_table.keys[shmid] = 0;
-  }
-  
-  release(&shm_table.lock);
   return 0;
 }
 
@@ -448,4 +452,117 @@ uint64
 sys_time(void)
 {
   return rtctime();
+}
+// Helper: Add SHM ID to process tracking
+int
+shm_add_proc(struct proc *p, int shmid)
+{
+  for(int i=0; i<MAX_SHM_PER_PROC; i++){
+    if(p->shm[i] == -1){
+      p->shm[i] = shmid;
+      return 0;
+    }
+  }
+  return -1; // Process wide limit reached
+}
+
+// Helper: Remove SHM ID from process tracking
+void
+shm_remove_proc(struct proc *p, int shmid)
+{
+  for(int i=0; i<MAX_SHM_PER_PROC; i++){
+    if(p->shm[i] == shmid){
+      p->shm[i] = -1;
+      return;
+    }
+  }
+}
+
+// Internal detach logic (called by sys_shmdt and shm_exit)
+// Must hold shm_table.lock? No, it acquires it.
+void
+shm_detach(struct proc *p, int shmid, uint64 addr)
+{
+  acquire(&shm_table.lock);
+  
+  if(!shm_table.used[shmid]){
+      release(&shm_table.lock);
+      return;
+  }
+  
+  // Refcount check? We assume caller knows p has it attached.
+  
+  // Unmap from user page table if addr matches (for explicit shmdt)
+  // For shm_exit, addr might be 0 (unknown), so we might skip unmap 
+  // and rely on proc_freepagetable doing the bulk unmap later?
+  // Actually, proc_freepagetable cleans up the whole user address space, 
+  // so we arguably don't need to uvmunmap here for exit(), 
+  // blocking refcount decrements is the main issue.
+  
+  // However, sys_shmdt calls this with specific addr.
+  
+  // if(addr > 0 && addr < MAXVA) {
+  //    int npages = shm_table.npages[shmid];
+  //    // uvmunmap(p->pagetable, addr, npages, 0); // Already handled by sys_shmdt logic before
+  // }
+  
+  // Decrement refcount
+  if(shm_table.refcount[shmid] > 0)
+      shm_table.refcount[shmid]--;
+      
+  // Free backing pages if refcount hits 0 (and not static)
+  if(shm_table.refcount[shmid] == 0 && !shm_table.is_static[shmid]){
+      int npages = shm_table.npages[shmid];
+      for(int i = 0; i < npages; i++){
+          if(shm_table.pages[shmid][i])
+              kfree(shm_table.pages[shmid][i]);
+          shm_table.pages[shmid][i] = 0;
+      }
+      shm_table.used[shmid] = 0;
+      shm_table.keys[shmid] = 0;
+  }
+  
+  release(&shm_table.lock);
+}
+
+// Inherit SHM segments on fork
+void
+shm_fork(struct proc *p, struct proc *np)
+{
+  acquire(&shm_table.lock);
+  
+  // Copy attached segments
+  for(int i=0; i<MAX_SHM_PER_PROC; i++){
+    int shmid = p->shm[i];
+    if(shmid != -1){
+      // Increment refcount
+      if(shm_table.used[shmid]){
+         shm_table.refcount[shmid]++;
+         np->shm[i] = shmid;
+      } else {
+         np->shm[i] = -1; // Should not happen
+      }
+    } else {
+      np->shm[i] = -1;
+    }
+  }
+  
+  release(&shm_table.lock);
+}
+
+// Detach all SHM segments on exit
+void
+shm_exit(struct proc *p)
+{
+  // Note: We don't need to unmap pages (uvmunmap) because
+  // proc_freepagetable() will reclaim the user VA space completely.
+  // We ONLY need to update the global SHM refcounts.
+  
+  for(int i=0; i<MAX_SHM_PER_PROC; i++){
+    int shmid = p->shm[i];
+    if(shmid != -1){
+       shm_detach(p, shmid, 0); // addr=0 implies "just decrement refcount"
+       p->shm[i] = -1;
+    }
+  }
 }

@@ -146,6 +146,10 @@ found:
   memset(&p->context, 0, sizeof(p->context));
   p->context.ra = (uint64)forkret;
   p->context.sp = p->kstack + PGSIZE;
+  
+  // Initialize SHM list
+  for(int i=0; i<MAX_SHM_PER_PROC; i++)
+    p->shm[i] = -1;
 
   return p;
 }
@@ -307,6 +311,9 @@ fork(void)
     return -1;
   }
   np->sz = p->sz;
+  
+  // Fork shared memory segments
+  shm_fork(p, np);
 
   // copy saved user registers.
   *(np->trapframe) = *(p->trapframe);
@@ -376,6 +383,9 @@ exit(int status)
   iput(p->cwd);
   end_op();
   p->cwd = 0;
+  
+  // Detach all Shared Memory segments
+  shm_exit(p);
 
   acquire(&wait_lock);
 
