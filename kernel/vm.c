@@ -31,6 +31,9 @@ kvmmake(void)
   // virtio mmio interface (map 8 slots)
   kvmmap(kpgtbl, VIRTIO0, VIRTIO0, 8*PGSIZE, PTE_R | PTE_W);
 
+  // goldfish rtc
+  kvmmap(kpgtbl, RTC, RTC, PGSIZE, PTE_R | PTE_W);
+
   // PLIC
   kvmmap(kpgtbl, PLIC, PLIC, 0x4000000, PTE_R | PTE_W);
 

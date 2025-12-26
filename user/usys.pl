@@ -49,4 +49,5 @@ entry("shmdt");
 entry("flush_console");
 entry("procinfo");
 entry("stat");
+entry("time");
 

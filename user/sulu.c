@@ -757,6 +757,38 @@ void sulu_draw_char_screen(uint *fb, int stride, int x, int y, char ch, uint col
     }
 }
 
+// Clock state
+char clock_buf[16] = "00:00:00";
+int  last_time_sec = -1;
+
+void update_clock() {
+    int t = time();
+    if(t == last_time_sec) return;
+    last_time_sec = t;
+    
+    int s = t % 60;
+    int m = (t / 60) % 60;
+    int h = (t / 3600) % 24;
+    
+    // Simple snprintf replacement since we might not have it
+    // Using manual formatting
+    clock_buf[0] = '0' + (h / 10);
+    clock_buf[1] = '0' + (h % 10);
+    clock_buf[2] = ':';
+    clock_buf[3] = '0' + (m / 10);
+    clock_buf[4] = '0' + (m % 10);
+    clock_buf[5] = ':';
+    clock_buf[6] = '0' + (s / 10);
+    clock_buf[7] = '0' + (s % 10);
+    clock_buf[8] = 0;
+    
+    // Mark clock region dirty
+    if(sysbar.type == WIDGET_TYPE_SYSBAR) {
+       // Only partial redraw of clock area
+       mark_dirty(SCREEN_W - 80, sysbar.y, 80, sysbar.h);
+    }
+}
+
 // Helper to draw text directly to screen
 void draw_screen_text(int x, int y, char *s, uint color) {
   while(*s) {
@@ -847,8 +879,8 @@ void draw_system_bar(Rect *clip) {
       btn_x += BAR_BTN_WIDTH + BAR_BTN_MARGIN;
   }
   
-  // Clock (placeholder)
-  draw_screen_text(SCREEN_W - 60, bar_y + 11, "XV6 OS", BAR_BTN_TEXT_INACTIVE);
+  // Clock
+  draw_screen_text(SCREEN_W - 80, bar_y + 11, clock_buf, BAR_BTN_TEXT_INACTIVE);
 }
 
 // Composite all windows AND cursor (using z-index: bg -> windows -> cursor)
@@ -1399,18 +1431,20 @@ main(int argc, char *argv[])
       }
       
 
-      if(did_work){
+      // Update Clock every frame (jitter-free)
+      update_clock();
+
+      if(did_work || dirty_valid){
           // Use dirty region compositing instead of full screen
           composite_dirty_and_flush();
           
           // Cap frame rate
           uint64 elapsed = rdtime() - loop_start;
-          if(elapsed < SULU_FRAME_CYCLES) {
+          if(elapsed < SULU_FRAME_CYCLES){
             usleep((SULU_FRAME_CYCLES - elapsed) / 10);
           }
       } else {
       }
-      
       // Yield CPU if idle to allow clients to run
       if(!did_work) {
           yield();

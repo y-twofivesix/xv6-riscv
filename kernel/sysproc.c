@@ -441,3 +441,9 @@ sys_procinfo(void)
   
   return count;
 }
+
+uint64
+sys_time(void)
+{
+  return rtctime();
+}

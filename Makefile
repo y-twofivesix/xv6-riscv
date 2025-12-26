@@ -13,6 +13,7 @@ OBJS = \
   $K/sulu_dev.o \
   $K/virtio_gpu.o \
   $K/virtio_input.o \
+  $K/rtc.o \
   $K/main.o \
   $K/vm.o \
   $K/proc.o \

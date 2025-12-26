@@ -25,6 +25,9 @@
 #define VIRTIO0 0x10001000
 #define VIRTIO0_IRQ 1
 
+// Goldfish RTC
+#define RTC 0x101000
+
 // qemu puts platform-level interrupt controller (PLIC) here.
 #define PLIC 0x0c000000L
 #define PLIC_PRIORITY (PLIC + 0x0)

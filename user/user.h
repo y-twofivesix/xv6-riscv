@@ -27,6 +27,7 @@ char* sbrk(int);
 int sleep(int);
 int uptime(void);
 int stat(const char*, struct stat*);
+int time(void);
 void usleep(uint64);
 
 static inline uint64
