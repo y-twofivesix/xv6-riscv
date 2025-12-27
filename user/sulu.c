@@ -26,6 +26,7 @@
 #define MIN_BTN_HOVER (uint)0xFFFFFF00
 
 #define ENABLE_SHADOWS 1
+#define ENABLE_SPECIAL_SHADOW 1
 #define ENABLE_OCCLUSION_CULLING 1
 #define SHADOW_OFFSET 6
 #define CURSOR_SHADOW_OFFSET 3
@@ -101,6 +102,11 @@ typedef struct Window {
   int is_maximized;
   int is_minimized;
   int old_x, old_y, old_w, old_h;
+  
+  // Effects
+#if ENABLE_SPECIAL_SHADOW
+  int special_shadow;
+#endif
 } Window;
 
 // Widget Infrastructure
@@ -319,16 +325,89 @@ void composite_region(Rect *r) {
         }
 
         // Check if window intersects region
-        if (!(w->x + w->w + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0) <= rx || rx2 <= w->x ||
-              w->y + w->h + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0) <= ry || ry2 <= w->y)) {
+        int eff_x = w->x;
+        int eff_y = w->y;
+        int eff_w = w->w;
+        int eff_h = w->h;
+        
+#if ENABLE_SPECIAL_SHADOW
+        if(w->special_shadow) {
+            int hover_offset = 20; // How far BELOW window the shadow starts
+            int shadow_len = 60;
+            
+            // Shadow Skews UP-RIGHT from a point BELOW the window.
+            // Bottom of shadow = Window Bottom + Offset.
+            int shadow_bottom = w->y + w->h + hover_offset;
+            int shadow_top = shadow_bottom - shadow_len; // Goes up
+            
+            // Intersection Bounds
+            // Top: min(w->y, shadow_top).
+            // Bottom: max(w->y+h, shadow_bottom).
+            
+            // shadow_top = y+h+20 - 60 = y+h-40. (Inside window vertical range if h>40).
+            // So eff_y = w->y (Window Top is usually highest).
+            
+            if(shadow_top < w->y) eff_y = shadow_top; else eff_y = w->y;
+            
+            // eff_h = Top to Bottom.
+            // Bottom is shadow_bottom (y+h+20).
+            eff_h = shadow_bottom - eff_y;
+            
+            eff_w += 80; // Skew width
+        } else 
+#endif
+        if(ENABLE_SHADOWS) {
+            eff_w += SHADOW_OFFSET;
+            eff_h += SHADOW_OFFSET;
+        }
+
+        if (!(eff_x + eff_w <= rx || rx2 <= eff_x ||
+              eff_y + eff_h <= ry || ry2 <= eff_y)) {
             // Draw overlapped portion (including shadow)
-            int wx1 = (rx > w->x) ? rx : w->x;
-            int wy1 = (ry > w->y) ? ry : w->y;
-            int wx2 = (rx2 < w->x + w->w + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0)) ? rx2 : w->x + w->w + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0);
-            int wy2 = (ry2 < w->y + w->h + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0)) ? ry2 : w->y + w->h + (ENABLE_SHADOWS ? SHADOW_OFFSET : 0);
+            int wx1 = (rx > eff_x) ? rx : eff_x;
+            int wy1 = (ry > eff_y) ? ry : eff_y;
+            int wx2 = (rx2 < eff_x + eff_w) ? rx2 : eff_x + eff_w;
+            int wy2 = (ry2 < eff_y + eff_h) ? ry2 : eff_y + eff_h;
         
             // Render shadow first
 #if ENABLE_SHADOWS
+            int drawn_special = 0;
+#if ENABLE_SPECIAL_SHADOW
+            if(w->special_shadow) {
+                // Special Hover Wall Shadow (Lowered)
+                int hover_offset = 20;
+                int shadow_len = 60;
+                
+                int shadow_bottom = w->y + w->h + hover_offset;
+                int shadow_top = shadow_bottom - shadow_len;
+                
+                // Effective render range Y (Clip to region)
+                int y1 = (ry > shadow_top) ? ry : shadow_top;
+                int y2 = (ry2 < shadow_bottom) ? ry2 : shadow_bottom;
+                
+                for(int y = y1; y < y2; y++) {
+                     // 0 at shadow_bottom, inc as goes up
+                     int dist_up = shadow_bottom - y;
+                     int skew = dist_up * 1; // Skew Right
+                     int sx1 = w->x + skew;
+                     int sx2 = w->x + w->w + skew;
+                     
+                     // Clip horizontal
+                     int tx1 = (rx > sx1) ? rx : sx1;
+                     int tx2 = (rx2 < sx2) ? rx2 : sx2;
+                     
+                     if(tx1 < tx2) {
+                         for(int x = tx1; x < tx2; x++) {
+                              fb[y * SCREEN_W + x] = SHADOW_COLOR;
+                         }
+                     }
+                }
+                drawn_special = 1;
+            } 
+#endif
+            
+            if(!drawn_special) {
+                // Standard Box Shadow
             // If we are THE top_opaque window, don't draw our own shadow into the occluded region 
             // because we are opaque and cover it anyway. 
             // But shadows are offset, so we only skip if the shadow is also occluded.
@@ -346,6 +425,7 @@ void composite_region(Rect *r) {
                         }
                     }
                 }
+            }
             }
 #endif
 
@@ -642,6 +722,23 @@ void window_mark_dirty_rect(Window *w, int rx, int ry, int rw, int rh) {
     mark_dirty(sx, sy, rw, rh);
 }
 
+// Reset Special Shadows for all windows
+void reset_special_shadows() {
+#if ENABLE_SPECIAL_SHADOW
+    Window *w = windows;
+    while(w) {
+        if(w->special_shadow) {
+            w->special_shadow = 0;
+            // Mark dirty with extended rect to clear shadow
+            // Shadow is Lowered (starts below window).
+            // Mark safe bounds: Window + 50 above + 50 below.
+            mark_dirty(w->x, w->y - 50, w->w + 100, w->h + 100);
+        }
+        w = w->next;
+    }
+#endif
+}
+
 // Close and free a window
 void close_window(Window *w) {
     if(!w) return;
@@ -894,12 +991,20 @@ void draw_system_bar(Rect *clip) {
   }
   draw_screen_text(app_btn_x+4, bar_y + 11, "Apps", BAR_BTN_TEXT_ACTIVE);
 
-  // Window buttons
-  int btn_x = 55; // Shifted right after Apps button
-  
   Window *sorted_wins[MAX_WINDOWS];
   int win_count = get_all_windows(sorted_wins, MAX_WINDOWS);
   sort_windows_by_id(sorted_wins, win_count);
+
+  // Window buttons
+  // Align to Right (Left of Clock)
+  int clock_space = 90; // 80 + margin
+  int total_btn_width = win_count * (BAR_BTN_WIDTH + BAR_BTN_MARGIN);
+  int start_x = SCREEN_W - clock_space - total_btn_width;
+  int min_x = 55; // Right of Apps Button
+  
+  if(start_x < min_x) start_x = min_x; // Clamp if too many windows
+  
+  int btn_x = start_x; 
 
   for(int k = 0; k < win_count; k++) {
     Window *curr = sorted_wins[k];
@@ -1410,10 +1515,19 @@ main(int argc, char *argv[])
                                   
                                   if(!handled) {
                                       // Bar click logic (find button)
-                                      int btn_x = 55;
+                                      // Bar click logic (find button)
                                       Window *sorted_wins[MAX_WINDOWS];
                                       int win_count = get_all_windows(sorted_wins, MAX_WINDOWS);
                                       sort_windows_by_id(sorted_wins, win_count);
+                                      
+                                      int clock_space = 90; 
+                                      int total_btn_width = win_count * (BAR_BTN_WIDTH + BAR_BTN_MARGIN);
+                                      int start_x = SCREEN_W - clock_space - total_btn_width;
+                                      int min_x = 55; 
+                                      
+                                      if(start_x < min_x) start_x = min_x; 
+                                      
+                                      int btn_x = start_x;
     
                                       for(int k = 0; k < win_count; k++) {
                                           Window *curr = sorted_wins[k];
@@ -1427,6 +1541,10 @@ main(int argc, char *argv[])
                                                   
                                                   if(is_dbl) {
                                                        printf("sulu: Bar Double Click! Centering...\n");
+                                                       
+                                                       // Reset any existing special shadows first
+                                                       reset_special_shadows();
+                                                       
                                                        // 1. Center & Restore
                                                        if(curr->is_maximized) {
                                                            curr->is_maximized = 0;
@@ -1439,15 +1557,29 @@ main(int argc, char *argv[])
                                                        // Center
                                                        curr->x = (SCREEN_W - curr->w) / 2;
                                                        curr->y = (SCREEN_H - curr->h) / 2;
-                                                       // Keep valid
+                                                       // Keeping valid
                                                        if(curr->y < 30) curr->y = 30; // Below bar
                                                        
                                                        curr->is_minimized = 0;
+#if ENABLE_SPECIAL_SHADOW
+                                                       curr->special_shadow = 1; // ENABLE SHADOW
                                                        
                                                        if(curr->shm) {
                                                             curr->shm->x = curr->x;
                                                             curr->shm->y = curr->y;
                                                        }
+                                                       
+                                                       // Mark new area dirty + extra for special shadow
+                                                       // Shadow goes Right (skew) and Up-Right from Below.
+                                                       // Mark safe bounds: Window + 50 above + 50 below.
+                                                       mark_dirty(curr->x, curr->y - 50, curr->w + 100, curr->h + 100);
+#else
+                                                       if(curr->shm) {
+                                                            curr->shm->x = curr->x;
+                                                            curr->shm->y = curr->y;
+                                                       }
+                                                       window_mark_dirty(curr);
+#endif
                                                        
                                                        // 2. Minimize Others
                                                        for(int m=0; m<win_count; m++) {
@@ -1464,7 +1596,14 @@ main(int argc, char *argv[])
                                                        focus_window(curr);
                                                        last_bar_click_time = 0;
                                                   } else {
+                                                       // Single Click: Focus/Restore
+                                                       reset_special_shadows(); // Clear special effect if clicking around
+                                                       
                                                        focus_window(curr);
+                                                       if(curr->is_minimized) {
+                                                           curr->is_minimized = 0;
+                                                           window_mark_dirty(curr);
+                                                       }
                                                        last_bar_click_time = now;
                                                        last_bar_click_win_id = curr->id;
                                                   }
@@ -1557,6 +1696,9 @@ main(int argc, char *argv[])
                                                 if(sysbar.type == WIDGET_TYPE_SYSBAR)
                                                     mark_dirty(sysbar.x, sysbar.y, sysbar.w, sysbar.h); // Update taskbar highlight
                                             } else if (!hit->is_maximized) {
+                                               // Drag Start - Reset Special Shadow
+                                               reset_special_shadows();
+                                               
                                                drag_win = hit;
                                                drag_off_x = mouse_x - hit->x;
                                                drag_off_y = mouse_y - hit->y;
