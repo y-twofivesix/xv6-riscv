@@ -394,13 +394,36 @@ void composite_region(Rect *r) {
                      int sx1 = w->x + skew;
                      int sx2 = w->x + w->w + skew;
                      
+                     // Gradient: Darker near window, subtle fade at edges
+                     // intensity: 255 (close) to 180 (far) - dark with gentle fade
+                     int intensity = 255 - (dist_up * 75) / shadow_len;
+                     if(intensity > 255) intensity = 255;
+                     if(intensity < 180) intensity = 180;
+                     
+                     // Shadow base color components (SHADOW_COLOR = 0xFF04081F)
+                     // We'll blend with the background based on intensity
+                     int sr = (SHADOW_COLOR >> 16) & 0xFF;
+                     int sg = (SHADOW_COLOR >> 8) & 0xFF;
+                     int sb = SHADOW_COLOR & 0xFF;
+                     
                      // Clip horizontal
                      int tx1 = (rx > sx1) ? rx : sx1;
                      int tx2 = (rx2 < sx2) ? rx2 : sx2;
                      
                      if(tx1 < tx2) {
                          for(int x = tx1; x < tx2; x++) {
-                              fb[y * SCREEN_W + x] = SHADOW_COLOR;
+                              // Alpha blend: dst = src * alpha + dst * (1 - alpha)
+                              // where alpha = intensity / 255
+                              uint dst = fb[y * SCREEN_W + x];
+                              int dr = (dst >> 16) & 0xFF;
+                              int dg = (dst >> 8) & 0xFF;
+                              int db = dst & 0xFF;
+                              
+                              int nr = (sr * intensity + dr * (255 - intensity)) / 255;
+                              int ng = (sg * intensity + dg * (255 - intensity)) / 255;
+                              int nb = (sb * intensity + db * (255 - intensity)) / 255;
+                              
+                              fb[y * SCREEN_W + x] = 0xFF000000 | (nr << 16) | (ng << 8) | nb;
                          }
                      }
                 }
