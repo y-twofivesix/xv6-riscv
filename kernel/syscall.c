@@ -116,6 +116,8 @@ extern uint64 sys_flush_console(void);
 extern uint64 sys_procinfo(void);
 extern uint64 sys_stat(void);
 extern uint64 sys_time(void);
+extern uint64 sys_shutdown(void);
+extern uint64 sys_reboot(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -155,6 +157,8 @@ static uint64 (*syscalls[])(void) = {
 [SYS_procinfo] sys_procinfo,
 [SYS_stat] sys_stat,
 [SYS_time] sys_time,
+[SYS_shutdown] sys_shutdown,
+[SYS_reboot] sys_reboot,
 };
 
 void

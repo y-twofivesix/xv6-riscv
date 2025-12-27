@@ -28,6 +28,9 @@
 // Goldfish RTC
 #define RTC 0x101000
 
+// QEMU Test Device (Shutdown/Reboot)
+#define VIRT_TEST 0x100000L
+
 // qemu puts platform-level interrupt controller (PLIC) here.
 #define PLIC 0x0c000000L
 #define PLIC_PRIORITY (PLIC + 0x0)

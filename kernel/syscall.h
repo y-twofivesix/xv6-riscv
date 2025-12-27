@@ -34,3 +34,5 @@
 #define SYS_procinfo 33
 #define SYS_stat 34
 #define SYS_time 35
+#define SYS_shutdown 36
+#define SYS_reboot 37

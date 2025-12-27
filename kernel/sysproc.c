@@ -35,6 +35,8 @@ shminit()
   initlock(&shm_table.lock, "shm");
 }
 
+#include "memlayout.h"
+
 uint64
 sys_exit(void)
 {
@@ -565,4 +567,20 @@ shm_exit(struct proc *p)
        p->shm[i] = -1;
     }
   }
+}
+
+uint64
+sys_shutdown(void)
+{
+    printf("System Shutdown...\n");
+    *(volatile uint32 *)VIRT_TEST = 0x5555;
+    return 0;
+}
+
+uint64
+sys_reboot(void)
+{
+    printf("System Reboot...\n");
+    *(volatile uint32 *)VIRT_TEST = 0x7777;
+    return 0;
 }

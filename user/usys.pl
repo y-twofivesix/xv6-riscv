@@ -38,6 +38,8 @@ entry("sleep");
 entry("uptime");
 entry("pwd");
 entry("send");
+entry("shutdown");
+entry("reboot");
 entry("recv");
 entry("shmget");
 entry("shmat");

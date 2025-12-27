@@ -28,6 +28,8 @@ int sleep(int);
 int uptime(void);
 int stat(const char*, struct stat*);
 int time(void);
+int shutdown(void);
+int reboot(void);
 void usleep(uint64);
 
 static inline uint64

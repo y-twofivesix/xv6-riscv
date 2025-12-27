@@ -132,9 +132,15 @@ void main(int argc, char *argv[])
                exit(0);
           }
       }
-      
-      usleep(SULU_DEFAULT_FRAME_USEC); 
-  }
+            // Check for Resize
+       if(shm->width != width || shm->height != height) {
+           width = shm->width;
+           height = shm->height;
+           render();
+       }
+
+       usleep(SULU_DEFAULT_FRAME_USEC); 
+   }
 }
 
 // Draw a simple rect

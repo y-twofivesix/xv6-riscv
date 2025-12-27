@@ -155,7 +155,8 @@ UPROGS=\
 	$U/_terminal\
 	$U/_procs\
 	$U/_fileman\
-	$U/_editor
+	$U/_editor\
+	$U/_shutdown
 
 .PHONY: fs.img
 fs.img: mkfs/mkfs README INFO $(UPROGS)

@@ -34,6 +34,9 @@ kvmmake(void)
   // goldfish rtc
   kvmmap(kpgtbl, RTC, RTC, PGSIZE, PTE_R | PTE_W);
 
+  // QEMU Test Device
+  kvmmap(kpgtbl, VIRT_TEST, VIRT_TEST, PGSIZE, PTE_R | PTE_W);
+  
   // PLIC
   kvmmap(kpgtbl, PLIC, PLIC, 0x4000000, PTE_R | PTE_W);
 

@@ -1289,16 +1289,23 @@ main(int argc, char *argv[])
                                                if(next != r->tail) {
                                                    hit->shm->event_buf[r->head].type = SULU_EV_MAXIMIZE;
                                                    hit->shm->event_buf[r->head].value = hit->is_maximized;
-                                                   if(hit->is_maximized) {
+                                               if(hit->is_maximized) {
                                                        hit->shm->event_buf[r->head].x = SCREEN_W;
 #if FULLSCREEN_OVER_SYS_BAR
                                                        hit->shm->event_buf[r->head].y = SCREEN_H - TITLE_BAR_HEIGHT;
 #else
                                                        hit->shm->event_buf[r->head].y = SCREEN_H - TITLE_BAR_HEIGHT - BAR_HEIGHT;
 #endif
+                                                       // Sync SHM dims immediately so client sees it
+                                                       hit->shm->width = hit->shm->event_buf[r->head].x;
+                                                       hit->shm->height = hit->shm->event_buf[r->head].y;
                                                    } else {
                                                        hit->shm->event_buf[r->head].x = hit->old_w;
                                                        hit->shm->event_buf[r->head].y = hit->old_h;
+                                                       
+                                                       // Sync SHM dims
+                                                       hit->shm->width = hit->old_w;
+                                                       hit->shm->height = hit->old_h;
                                                    }
                                                    r->head = next;
                                                }
