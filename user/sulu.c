@@ -32,6 +32,8 @@
 #define CURSOR_SHADOW_OFFSET 3
 #define SHADOW_COLOR (uint)0xFF04081F  // Deep darkened color
 #define FULLSCREEN_OVER_SYS_BAR 1
+// 1 = System Bar at Top, 0 = Bottom
+#define SYSBAR_AT_TOP 1
 
 // System Bar
 #define BAR_HEIGHT 30
@@ -745,6 +747,12 @@ void close_window(Window *w) {
 
     // 1. Mark dirty (so area gets redrawn)
     window_mark_dirty(w);
+#if ENABLE_SPECIAL_SHADOW
+    if(w->special_shadow) {
+         // Mark extended bounds to clear special shadow
+          mark_dirty(w->x, w->y - 50, w->w + 100, w->h + 100);
+    }
+#endif
 
     // 2. Unlink from list
     if(windows == w) {
@@ -1168,7 +1176,11 @@ main(int argc, char *argv[])
   
   // Initialize System Bar Widget
   sysbar.x = 0;
+#if SYSBAR_AT_TOP
+  sysbar.y = 0;
+#else
   sysbar.y = SCREEN_H - BAR_HEIGHT;
+#endif
   sysbar.w = SCREEN_W;
   sysbar.h = BAR_HEIGHT;
   sysbar.type = WIDGET_TYPE_SYSBAR;
@@ -1389,6 +1401,14 @@ main(int argc, char *argv[])
                       // Update window position
                       drag_win->x = mouse_x - drag_off_x;
                       drag_win->y = mouse_y - drag_off_y;
+                      
+#if SYSBAR_AT_TOP
+                      // Clamp to avoid hiding under Top Bar
+                      // Unless it's fullscreen/maximized which handles its own positioning,
+                      // but dragging usually implies windowed mode.
+                      // Allow slight overlap? No, keep title bar visible.
+                      if(drag_win->y < BAR_HEIGHT) drag_win->y = BAR_HEIGHT;
+#endif
                       if(drag_win->shm) {
                           drag_win->shm->x = drag_win->x;
                           drag_win->shm->y = drag_win->y;
@@ -1494,7 +1514,10 @@ main(int argc, char *argv[])
                                }
                           }
                           
-                          if(!handled && mouse_x >= sysbar.x && mouse_x < sysbar.x + sysbar.w &&
+                          // Check if System Bar is obscured by a fullscreen window
+                          int sysbar_obscured = (focus_win && focus_win->is_maximized && FULLSCREEN_OVER_SYS_BAR);
+
+                          if(!handled && !sysbar_obscured && mouse_x >= sysbar.x && mouse_x < sysbar.x + sysbar.w &&
                              mouse_y >= sysbar.y && mouse_y < sysbar.y + sysbar.h) {
                                if(sysbar.type == WIDGET_TYPE_SYSBAR) {
                                   // Check Apps Button
@@ -1648,12 +1671,21 @@ main(int argc, char *argv[])
                                            // Toggle maximization
                                            hit->is_maximized = !hit->is_maximized;
                                            if(hit->is_maximized) {
-                                               hit->old_x = hit->x; hit->old_y = hit->y;
+                                               hit->old_x = hit->x; hit->old_y = hit->y; // SAVE PREVIOUS POS
                                                hit->old_w = hit->w; hit->old_h = hit->h - TITLE_BAR_HEIGHT;
-                                               hit->x = 0; hit->y = 0;
+                                               hit->x = 0; 
+#if SYSBAR_AT_TOP && !FULLSCREEN_OVER_SYS_BAR
+                                               hit->y = BAR_HEIGHT;
+#else
+                                               hit->y = 0;
+#endif
                                            } else {
                                                window_mark_dirty(hit);
                                                hit->x = hit->old_x; hit->y = hit->old_y;
+#if SYSBAR_AT_TOP
+                                               // Safety clamp on restore
+                                               if(hit->y < BAR_HEIGHT) hit->y = BAR_HEIGHT;
+#endif
                                            }
                                            if(hit->shm) {
                                                hit->shm->x = hit->x;
