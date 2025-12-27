@@ -93,6 +93,9 @@ sulu_connect(int shm_key, int width, int height) {
 #define KEY_LEFT 105
 #define KEY_RIGHT 106
 #define KEY_DOWN 108
+#define BTN_LEFT 0x110
+#define BTN_RIGHT 0x111
+#define BTN_MIDDLE 0x112
 
 // Command structure (client writes these)
 struct sulu_cmd {
@@ -593,6 +596,31 @@ static inline int sulu_event_push(struct sulu_window_shm *shm, struct sulu_event
     __sync_synchronize();
     r->head = next;
     return 0;
+}
+
+// Draw a line using Bresenham's algorithm
+static inline void sulu_draw_line(struct sulu_window_shm *shm, int x0, int y0, int x1, int y1, uint color) {
+    uint *pixels = sulu_pixels(shm);
+    int stride = shm->width;
+    int win_w = shm->width;
+    int win_h = shm->height;
+
+    int dx = (x1 - x0) > 0 ? (x1 - x0) : -(x1 - x0);
+    int dy = (y1 - y0) > 0 ? (y1 - y0) : -(y1 - y0);
+    int sx = x0 < x1 ? 1 : -1;
+    int sy = y0 < y1 ? 1 : -1;
+    int err = (dx > dy ? dx : -dy) / 2;
+    int e2;
+
+    while (1) {
+        if (x0 >= 0 && x0 < win_w && y0 >= 0 && y0 < win_h) {
+            pixels[y0 * stride + x0] = color;
+        }
+        if (x0 == x1 && y0 == y1) break;
+        e2 = err;
+        if (e2 > -dx) { err -= dy; x0 += sx; }
+        if (e2 < dy) { err += dx; y0 += sy; }
+    }
 }
 
 #endif // _SULU_CLIENT_H_
