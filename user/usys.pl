@@ -40,6 +40,7 @@ entry("pwd");
 entry("send");
 entry("shutdown");
 entry("reboot");
+entry("kill_child");
 entry("recv");
 entry("shmget");
 entry("shmat");

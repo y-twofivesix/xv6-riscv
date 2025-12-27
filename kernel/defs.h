@@ -148,6 +148,7 @@ void*           shmat(int, void*);
 void            shm_exit(struct proc*);
 void            shm_fork(struct proc*, struct proc*);
 int             kill(int);
+int             kill_child(int);
 int             killed(struct proc*);
 void            setkilled(struct proc*);
 struct cpu*     mycpu(void);

@@ -39,6 +39,7 @@ int g_rows = 20;
 #define KEY_LEFT 105
 #define KEY_RIGHT 106
 #define KEY_C 46
+#define KEY_V 47
 #define KEY_P 25
 #define BTN_LEFT 0x110
 
@@ -501,8 +502,8 @@ main(int argc, char *argv[])
           continue;
         }
 
-        // Copy (Ctrl+C)
-        if (ctrl_pressed && code == KEY_C) {
+        // Copy (Ctrl+Shift+C)
+        if (ctrl_pressed && shift_state && code == KEY_C) {
           if (term.sel_start_row != -1) {
             int r1 = term.sel_start_row, c1 = term.sel_start_col;
             int r2 = term.sel_end_row, c2 = term.sel_end_col;
@@ -528,8 +529,15 @@ main(int argc, char *argv[])
           continue;
         }
 
-        // Paste (Ctrl+P)
-        if (ctrl_pressed && code == KEY_P) {
+        // Interrupt (Ctrl+C)
+        if (ctrl_pressed && !shift_state && code == KEY_C) {
+           // Kill the process running in the shell
+           kill_child(pid); 
+           continue;
+        }
+
+        // Paste (Ctrl+Shift+V)
+        if (ctrl_pressed && shift_state && code == KEY_V) {
           struct sulu_cmd cmd = { .type = SULU_CMD_CLIP_GET };
           sulu_cmd_push(shm, &cmd);
           continue;

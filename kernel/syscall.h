@@ -36,3 +36,4 @@
 #define SYS_time 35
 #define SYS_shutdown 36
 #define SYS_reboot 37
+#define SYS_kill_child 38

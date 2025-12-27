@@ -637,6 +637,28 @@ kill(int pid)
   return -1;
 }
 
+// Kill all children of the given pid.
+// Used for terminal Ctrl+C to kill shell jobs.
+int
+kill_child(int pid)
+{
+  struct proc *p;
+  int found = -1;
+
+  for(p = proc; p < &proc[NPROC]; p++){
+    acquire(&p->lock);
+    if(p->parent && p->parent->pid == pid && p->state != UNUSED){
+      p->killed = 1;
+      if(p->state == SLEEPING){
+        p->state = RUNNABLE;
+      }
+      found = 0;
+    }
+    release(&p->lock);
+  }
+  return found;
+}
+
 void
 setkilled(struct proc *p)
 {

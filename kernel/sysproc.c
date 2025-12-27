@@ -584,3 +584,11 @@ sys_reboot(void)
     *(volatile uint32 *)VIRT_TEST = 0x7777;
     return 0;
 }
+
+uint64
+sys_kill_child(void)
+{
+  int pid;
+  argint(0, &pid);
+  return kill_child(pid);
+}

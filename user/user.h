@@ -30,6 +30,7 @@ int stat(const char*, struct stat*);
 int time(void);
 int shutdown(void);
 int reboot(void);
+int kill_child(int);
 void usleep(uint64);
 
 static inline uint64

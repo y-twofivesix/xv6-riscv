@@ -234,8 +234,21 @@ void composite_region(Rect *r) {
     // 2. Draw background for this region (skip if occluded)
     if(!top_opaque) {
         for (int y = ry; y < ry2; y++) {
+            // Procedural Gradient: Deep Purple (Top) to Original Dark (Bottom)
+            // Top: 0xFF2A1B63, Bottom: BACK_COLOR (0xFF08113B)
+            
+            int ratio = (y * 256) / SCREEN_H; // 0 to 256
+            int inv = 256 - ratio;
+            
+            // Interpolate channels
+            int r = ((0x2A * inv) + (0x08 * ratio)) >> 8;
+            int g = ((0x1B * inv) + (0x11 * ratio)) >> 8;
+            int b = ((0x63 * inv) + (0x3B * ratio)) >> 8;
+            
+            uint col = 0xFF000000 | (r << 16) | (g << 8) | b;
+
             for (int x = rx; x < rx2; x++) {
-                fb[y * SCREEN_W + x] = BACK_COLOR;
+                fb[y * SCREEN_W + x] = col;
             }
         }
     }
