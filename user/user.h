@@ -49,6 +49,13 @@ int shmdt(int, void*);
 int gpu_flush(void);
 int gpu_flush_rect(int x, int y, int w, int h);
 int yield(void);
+int netping(void);
+int netpoll(void);
+int socket(int type);
+int sockbind(int fd, int port);
+int sendto(int fd, void *buf, int len, void *dst_ip, int dport);
+int recvfrom(int fd, void *buf, int maxlen, void *src_ip, void *src_port);
+int sockclose(int fd);
 void flush_console(void);
 
 // Process info structure (for procinfo syscall)

@@ -53,4 +53,11 @@ entry("flush_console");
 entry("procinfo");
 entry("stat");
 entry("time");
+entry("netping");
+entry("netpoll");
+entry("socket");
+entry("sockbind");
+entry("sendto");
+entry("recvfrom");
+entry("sockclose");
 

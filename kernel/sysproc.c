@@ -592,3 +592,97 @@ sys_kill_child(void)
   argint(0, &pid);
   return kill_child(pid);
 }
+
+// Send ICMP ping to gateway (for now)
+uint64
+sys_netping(void)
+{
+  static uint16 seq = 0;
+  uint8 gw_ip[4] = {10, 0, 2, 2};
+  uint8 data[32];
+  memset(data, 'A', sizeof(data));
+  int ret = net_send_icmp_echo(gw_ip, 1234, seq++, data, sizeof(data));
+  return ret;
+}
+
+// Poll for incoming packets
+uint64
+sys_netpoll(void)
+{
+  net_poll();
+  return 0;
+}
+
+// Socket syscalls
+uint64
+sys_socket(void)
+{
+  int type;
+  argint(0, &type);
+  return sock_alloc(type);
+}
+
+uint64
+sys_sockbind(void)
+{
+  int fd, port;
+  argint(0, &fd);
+  argint(1, &port);
+  return sock_bind(fd, port);
+}
+
+uint64
+sys_sendto(void)
+{
+  int fd, len, dport;
+  uint64 buf_va, ip_va;
+  uint8 buf[512];
+  uint8 dst_ip[4];
+  
+  argint(0, &fd);
+  argaddr(1, &buf_va);
+  argint(2, &len);
+  argaddr(3, &ip_va);
+  argint(4, &dport);
+  
+  if(len > sizeof(buf)) len = sizeof(buf);
+  if(copyin(myproc()->pagetable, buf, buf_va, len) < 0) return -1;
+  if(copyin(myproc()->pagetable, dst_ip, ip_va, 4) < 0) return -1;
+  
+  return sock_sendto(fd, buf, len, dst_ip, dport);
+}
+
+uint64
+sys_recvfrom(void)
+{
+  int fd, maxlen;
+  uint64 buf_va, ip_va, port_va;
+  uint8 buf[512];
+  uint8 src_ip[4];
+  uint16 src_port;
+  
+  argint(0, &fd);
+  argaddr(1, &buf_va);
+  argint(2, &maxlen);
+  argaddr(3, &ip_va);
+  argaddr(4, &port_va);
+  
+  if(maxlen > sizeof(buf)) maxlen = sizeof(buf);
+  
+  int ret = sock_recvfrom(fd, buf, maxlen, src_ip, &src_port);
+  if(ret > 0) {
+    copyout(myproc()->pagetable, buf_va, buf, ret);
+    if(ip_va) copyout(myproc()->pagetable, ip_va, src_ip, 4);
+    if(port_va) copyout(myproc()->pagetable, port_va, &src_port, 2);
+  }
+  return ret;
+}
+
+uint64
+sys_sockclose(void)
+{
+  int fd;
+  argint(0, &fd);
+  sock_free(fd);
+  return 0;
+}

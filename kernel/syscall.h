@@ -37,3 +37,10 @@
 #define SYS_shutdown 36
 #define SYS_reboot 37
 #define SYS_kill_child 38
+#define SYS_netping 39
+#define SYS_netpoll 40
+#define SYS_socket 41
+#define SYS_sockbind 42
+#define SYS_sendto 43
+#define SYS_recvfrom 44
+#define SYS_sockclose 45

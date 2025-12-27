@@ -203,6 +203,8 @@ devintr()
     } else if(irq >= VIRTIO0_IRQ && irq < VIRTIO0_IRQ + 8){
       if(irq == VIRTIO0_IRQ)
         virtio_disk_intr();
+      else if(irq == VIRTIO1_IRQ)
+        net_intr();
       else
         virtio_input_intr();
     } else if(irq){

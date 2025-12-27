@@ -25,6 +25,10 @@
 #define VIRTIO0 0x10001000
 #define VIRTIO0_IRQ 1
 
+// virtio-net (found at slot 4 by QEMU)
+#define VIRTIO1 0x10005000
+#define VIRTIO1_IRQ 5
+
 // Goldfish RTC
 #define RTC 0x101000
 

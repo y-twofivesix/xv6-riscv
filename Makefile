@@ -33,7 +33,9 @@ OBJS = \
   $K/sysfile.o \
   $K/kernelvec.o \
   $K/plic.o \
-  $K/virtio_disk.o
+  $K/virtio_disk.o \
+  $K/virtio_net.o \
+  $K/net.o
 
 # riscv64-unknown-elf- or riscv64-linux-gnu-
 # perhaps in /opt/riscv/bin
@@ -159,7 +161,10 @@ UPROGS=\
 	$U/_viewer\
 	$U/_shutdown\
 	$U/_snake\
-	$U/_minesweeper
+	$U/_minesweeper\
+	$U/_ping\
+	$U/_nc\
+	$U/_nslookup
 
 .PHONY: fs.img
 fs.img: mkfs/mkfs README INFO $(UPROGS) user/test_image.bmp
@@ -188,6 +193,7 @@ QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
 
 QEMUGUIOPTS = $(subst -nographic,,$(QEMUOPTS))
 QEMUGUIOPTS += -vga none -device virtio-gpu-device -device virtio-tablet-device -device virtio-keyboard-device -serial stdio
+QEMUGUIOPTS += -netdev user,id=net0,hostfwd=udp::5000-:5000 -device virtio-net-device,netdev=net0
 
 qemu-gui: $K/kernel.elf fs.img
 	$(QEMU) $(QEMUGUIOPTS)

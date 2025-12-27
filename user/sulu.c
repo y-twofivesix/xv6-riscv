@@ -1739,6 +1739,8 @@ main(int argc, char *argv[])
                                                    r->head = next;
                                                }
                                            }
+                                           // Full-screen redraw to clear artifacts
+                                           mark_dirty(0, 0, SCREEN_W, SCREEN_H);
                                        } else {
                                             // Check Minimize
                                             int min_x = max_x - MIN_BTN_SIZE - 4;

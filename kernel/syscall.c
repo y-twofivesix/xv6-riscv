@@ -119,6 +119,13 @@ extern uint64 sys_time(void);
 extern uint64 sys_shutdown(void);
 extern uint64 sys_reboot(void);
 extern uint64 sys_kill_child(void);
+extern uint64 sys_netping(void);
+extern uint64 sys_netpoll(void);
+extern uint64 sys_socket(void);
+extern uint64 sys_sockbind(void);
+extern uint64 sys_sendto(void);
+extern uint64 sys_recvfrom(void);
+extern uint64 sys_sockclose(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -161,6 +168,13 @@ static uint64 (*syscalls[])(void) = {
 [SYS_shutdown] sys_shutdown,
 [SYS_reboot] sys_reboot,
 [SYS_kill_child] sys_kill_child,
+[SYS_netping] sys_netping,
+[SYS_netpoll] sys_netpoll,
+[SYS_socket] sys_socket,
+[SYS_sockbind] sys_sockbind,
+[SYS_sendto] sys_sendto,
+[SYS_recvfrom] sys_recvfrom,
+[SYS_sockclose] sys_sockclose,
 };
 
 void

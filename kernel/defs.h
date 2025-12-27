@@ -265,4 +265,26 @@ void            virtio_input_init(void);
 void            virtio_input_intr(void);
 extern int      mouse_x, mouse_y, mouse_btn, mouse_scroll;
 
+// virtio_net.c
+void            net_init(void);
+int             net_send(void *data, int len);
+int             net_recv(void *buf, int maxlen);
+void            net_intr(void);
+void            net_get_mac(uint8 *mac);
+
+// net.c
+void            net_stack_init(void);
+void            net_poll(void);
+void            net_handle_packet(uint8 *pkt, int len);
+int             net_send_arp_request(uint8 *target_ip);
+int             net_send_icmp_echo(uint8 *dst_ip, uint16 id, uint16 seq, uint8 *data, int len);
+int             net_send_udp(uint8 *dst_ip, uint16 sport, uint16 dport, void *data, int len);
+
+// Socket API (net.c)
+int             sock_alloc(int type);
+void            sock_free(int fd);
+int             sock_bind(int fd, uint16 port);
+int             sock_sendto(int fd, void *buf, int len, uint8 *dst_ip, uint16 dport);
+int             sock_recvfrom(int fd, void *buf, int maxlen, uint8 *src_ip, uint16 *src_port);
+
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))
