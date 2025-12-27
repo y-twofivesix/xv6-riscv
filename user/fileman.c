@@ -246,10 +246,18 @@ void launch(char *name) {
             exec(path, argv);
             printf("fileman: exec failed for %s\n", path);
         } else {
-            // Fallback to editor for non-executable files
-            char *argv[] = {"editor", path, 0};
-            exec("editor", argv);
-            printf("fileman: failed to launch editor for %s\n", path);
+             // Check Extension for .bmp
+             int len = strlen(path);
+             if(len > 4 && strcmp(path + len - 4, ".bmp") == 0) {
+                 char *argv[] = {"viewer", path, 0};
+                 exec("viewer", argv);
+                 printf("fileman: failed to launch viewer for %s\n", path);
+             } else {
+                // Fallback to editor for non-executable files
+                char *argv[] = {"editor", path, 0};
+                exec("editor", argv);
+                printf("fileman: failed to launch editor for %s\n", path);
+             }
         }
         exit(1);
     }

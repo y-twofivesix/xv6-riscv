@@ -156,13 +156,14 @@ UPROGS=\
 	$U/_procs\
 	$U/_fileman\
 	$U/_editor\
+	$U/_viewer\
 	$U/_shutdown\
 	$U/_snake\
 	$U/_minesweeper
 
 .PHONY: fs.img
-fs.img: mkfs/mkfs README INFO $(UPROGS)
-	mkfs/mkfs fs.img README INFO $(UPROGS)
+fs.img: mkfs/mkfs README INFO $(UPROGS) user/test_image.bmp
+	mkfs/mkfs fs.img README INFO $(UPROGS) user/test_image.bmp
 
 -include kernel/*.d user/*.d
 
