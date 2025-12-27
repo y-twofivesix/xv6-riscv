@@ -143,6 +143,16 @@ int app_count = 7;
 int menu_visible = 0;
 int menu_hover_idx = -1;
 
+// Double Click State
+#define DBL_CLICK_THRESHOLD 3000000 // ~300ms if 10MHz
+uint64 last_click_time = 0;
+int last_click_x = 0;
+int last_click_y = 0;
+
+// System Bar Double Click
+uint64 last_bar_click_time = 0;
+int last_bar_click_win_id = 0;
+
 // Globals
 uint *fb;
 Window *windows = 0;
@@ -1409,7 +1419,55 @@ main(int argc, char *argv[])
                                           Window *curr = sorted_wins[k];
                                           
                                               if(mouse_x >= btn_x && mouse_x < btn_x + BAR_BTN_WIDTH) {
-                                                  focus_window(curr);
+                                                  // Check Double Click
+                                                  uint64 now = rdtime();
+                                                  int is_dbl = (now > last_bar_click_time && 
+                                                                (now - last_bar_click_time) < DBL_CLICK_THRESHOLD &&
+                                                                last_bar_click_win_id == curr->id);
+                                                  
+                                                  if(is_dbl) {
+                                                       printf("sulu: Bar Double Click! Centering...\n");
+                                                       // 1. Center & Restore
+                                                       if(curr->is_maximized) {
+                                                           curr->is_maximized = 0;
+                                                           curr->w = curr->old_w;
+                                                           curr->h = curr->old_h;
+                                                       }
+                                                       
+                                                       window_mark_dirty(curr); // Clean old pos
+                                                       
+                                                       // Center
+                                                       curr->x = (SCREEN_W - curr->w) / 2;
+                                                       curr->y = (SCREEN_H - curr->h) / 2;
+                                                       // Keep valid
+                                                       if(curr->y < 30) curr->y = 30; // Below bar
+                                                       
+                                                       curr->is_minimized = 0;
+                                                       
+                                                       if(curr->shm) {
+                                                            curr->shm->x = curr->x;
+                                                            curr->shm->y = curr->y;
+                                                       }
+                                                       
+                                                       // 2. Minimize Others
+                                                       for(int m=0; m<win_count; m++) {
+                                                            Window *other = sorted_wins[m];
+                                                            if(other != curr && other->type == WIN_TYPE_CLIENT) {
+                                                                if(!other->is_minimized) {
+                                                                    other->is_minimized = 1;
+                                                                    window_mark_dirty(other); // Clean it
+                                                                    // Drop focus if needed (will be handled by focus_window below)
+                                                                }
+                                                            }
+                                                       }
+                                                       
+                                                       focus_window(curr);
+                                                       last_bar_click_time = 0;
+                                                  } else {
+                                                       focus_window(curr);
+                                                       last_bar_click_time = now;
+                                                       last_bar_click_win_id = curr->id;
+                                                  }
                                                   break;
                                               }
                                               btn_x += BAR_BTN_WIDTH + BAR_BTN_MARGIN;
@@ -1515,6 +1573,25 @@ main(int argc, char *argv[])
                                         .rx = mouse_x - hit->x,
                                         .ry = mouse_y - hit->y
                                     };
+                                      
+                                      // Double Click Check
+                                      uint64 now = rdtime();
+                                      int dx = mouse_x - last_click_x;
+                                      int dy = mouse_y - last_click_y;
+                                      if(dx < 0) dx = -dx;
+                                      if(dy < 0) dy = -dy;
+                                      
+                                      if(now > last_click_time && (now - last_click_time) < DBL_CLICK_THRESHOLD &&
+                                         dx < 5 && dy < 5) {
+                                           sev.type = SULU_EV_MOUSE_DBLCLICK;
+                                           printf("sulu: Double Click Detected!\n");
+                                           last_click_time = 0; // Reset
+                                      } else {
+                                           last_click_time = now;
+                                           last_click_x = mouse_x;
+                                           last_click_y = mouse_y;
+                                      }
+                                      
                                       sulu_event_push(hit->shm, &sev);
                                   }
                               }

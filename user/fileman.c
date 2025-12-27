@@ -297,6 +297,7 @@ int main(int argc, char *argv[]) {
                      continue; // handled
                 }
                 
+                
                 for(int i=0; i<file_count; i++) {
                     if(view_mode == 0) { // GRID HIT TEST
                         int col = i % GRID_COLS;
@@ -326,8 +327,48 @@ int main(int argc, char *argv[]) {
                 }
                 
                 if(clicked_idx != -1) {
-                    if(clicked_idx == selection) {
-                        // Double Click
+                    selection = clicked_idx;
+                    render();
+                } else {
+                    if(selection != -1) {
+                        selection = -1;
+                        render();
+                    }
+                }
+            } else if (ev.type == SULU_EV_MOUSE_DBLCLICK) {
+                // Double Click Handling
+                int mx = ev.x - win.shm->x;
+                int my = ev.y - (win.shm->y + SULU_TITLE_BAR_HEIGHT);
+                int clicked_idx = -1;
+                
+                int start_y = TOP_BAR_HEIGHT + PADDING;
+                int start_x = PADDING;
+                
+                // Reuse Hit Test Logic
+               for(int i=0; i<file_count; i++) {
+                    if(view_mode == 0) { // GRID HIT TEST
+                        int col = i % GRID_COLS;
+                        int row = i / GRID_COLS;
+                        int x = start_x + col * (ICON_SIZE + GRID_SPACING + PADDING);
+                        int y = start_y + row * (ICON_SIZE + GRID_SPACING + PADDING + 15);
+                        int virtual_my = my + scroll_offset;
+                        if(mx >= x && mx < x + ICON_SIZE && 
+                           virtual_my >= y && virtual_my < y + ICON_SIZE + 15) {
+                            clicked_idx = i;
+                            break;
+                        }
+                    } else { // LIST HIT TEST
+                        int row_h = 24;
+                        int y = start_y + i * row_h;
+                        int virtual_my = my + scroll_offset;
+                        if(virtual_my >= y && virtual_my < y + row_h) {
+                            clicked_idx = i;
+                            break;
+                        }
+                    }
+                }
+                
+                if(clicked_idx != -1) {
                         if(files[clicked_idx].type == T_DIR) {
                             // Change Dir
                             char new_path[512];
@@ -350,20 +391,12 @@ int main(int argc, char *argv[]) {
                             } else {
                                 load_dir(new_path);
                             }
+                            render();
                         } else if(files[clicked_idx].type == T_FILE) {
                             launch(files[clicked_idx].name);
                         } else if(files[clicked_idx].type == T_DEVICE) {
-                            // Do nothing for devices to avoid crash
+                            // Do nothing
                         }
-                    } else {
-                        selection = clicked_idx;
-                    }
-                    render();
-                } else {
-                    if(selection != -1) {
-                        selection = -1;
-                        render();
-                    }
                 }
             }
             

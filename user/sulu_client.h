@@ -79,6 +79,7 @@ sulu_connect(int shm_key, int width, int height) {
 #define SULU_EV_MAXIMIZE     6   // User clicked maximize button
 #define SULU_EV_MOUSE_WHEEL  7   // Mouse wheel scroll (value = delta)
 #define SULU_EV_PASTE        8   // Clipboard data is ready in shm->clipboard
+#define SULU_EV_MOUSE_DBLCLICK 9 // Double click event (x, y)
 
 // Keyboard Scancodes
 #define KEY_ESC 1
