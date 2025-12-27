@@ -115,6 +115,33 @@ typedef struct {
 } Rect;
 
 #define WIDGET_TYPE_SYSBAR 1
+#define WIDGET_TYPE_MENU   6
+
+// Menu Config
+#define MENU_W (SCREEN_W / 3)
+#define MENU_H 240
+#define MENU_ITEM_H 30
+#define MENU_BG_COLOR (uint)0xEE111122
+#define MENU_HOVER_COLOR (uint)0xFF444466
+#define MENU_TEXT_COLOR (uint)0xFFFFFFFF
+
+struct AppEntry {
+    char *name;
+    char *bin;
+};
+
+struct AppEntry app_list[] = {
+    {"Terminal", "terminal"},
+    {"Editor", "editor"},
+    {"Files", "fileman"},
+    {"Snake", "snake"},
+    {"Mines", "minesweeper"},
+    {"Procs", "procs"},
+    {"Shutdown", "shutdown"}
+};
+int app_count = 7;
+int menu_visible = 0;
+int menu_hover_idx = -1;
 
 // Globals
 uint *fb;
@@ -134,6 +161,7 @@ Window *focus_win = 0;
 
 Window* find_window_at(int x, int y);
 void draw_system_bar(Rect *clip);
+void draw_menu();
 
 // ============================================================================
 // Cursor Bitmaps (10x10)
@@ -433,6 +461,9 @@ void composite_region(Rect *r) {
 #if !FULLSCREEN_OVER_SYS_BAR
     draw_system_bar(r);
 #endif
+
+    // Draw Menu (On top of everything except cursor)
+    if(menu_visible) draw_menu();
 
         // 3. Draw cursor last (highest z-index)
         Window *hit = find_window_at(cursor_rect.x, cursor_rect.y);
@@ -842,8 +873,19 @@ void draw_system_bar(Rect *clip) {
     }
   }
   
+  // Apps Button (Left Side)
+  int app_btn_x = 5;
+  int app_btn_w = 40;
+  // Simple Box
+  for(int j = bar_y+5; j < bar_y+bar_h-5; j++) {
+      for(int i = app_btn_x; i < app_btn_x+app_btn_w; i++) {
+        fb[j*SCREEN_W + i] = (menu_visible) ? BAR_BTN_ACTIVE : BAR_BTN_INACTIVE;
+      }
+  }
+  draw_screen_text(app_btn_x+4, bar_y + 11, "Apps", BAR_BTN_TEXT_ACTIVE);
+
   // Window buttons
-  int btn_x = 10;
+  int btn_x = 55; // Shifted right after Apps button
   
   Window *sorted_wins[MAX_WINDOWS];
   int win_count = get_all_windows(sorted_wins, MAX_WINDOWS);
@@ -873,16 +915,13 @@ void draw_system_bar(Rect *clip) {
             }
           }
           
-          // Title text (simple clipping: only draw if button fully visible or just draw anyway, 
-          // sulu_draw_char_screen handles screen bounds but not clip bounds.
-          // For simplicity, re-draw text if button is visible.
+          // Title text
           if(curr->shm->title[0]) {
             char buf[16];
             memmove(buf, curr->shm->title, 14);
             buf[14] = 0;
             int len = strlen(buf);
             if(len > 12) { buf[12] = '.'; buf[13] = '.'; }
-            // Only draw text if it might be within clip (heuristic)
             if(btn_x + 10 < x2 && btn_x + 10 + len*8 > x)
                 draw_screen_text(btn_x + 10, bar_y + 11, buf, text);
           }
@@ -891,8 +930,49 @@ void draw_system_bar(Rect *clip) {
       btn_x += BAR_BTN_WIDTH + BAR_BTN_MARGIN;
   }
   
-  // Clock
+  // Clock (Restored to Right)
   draw_screen_text(SCREEN_W - 80, bar_y + 11, clock_buf, BAR_BTN_TEXT_INACTIVE);
+}
+
+void draw_menu() {
+    if(!menu_visible) return;
+
+    int mx = (SCREEN_W - MENU_W) / 2;
+    int my = (SCREEN_H - MENU_H) / 2;
+
+    // Draw Menu Background
+    for(int j=0; j<MENU_H; j++) {
+        for(int i=0; i<MENU_W; i++) {
+            fb[(my+j)*SCREEN_W + (mx+i)] = MENU_BG_COLOR;
+        }
+    }
+    
+    // Draw Border
+    for(int i=0; i<MENU_W; i++) {
+        fb[my*SCREEN_W + mx+i] = 0xFFFFFFFF;
+        fb[(my+MENU_H-1)*SCREEN_W + mx+i] = 0xFFFFFFFF;
+    }
+    for(int j=0; j<MENU_H; j++) {
+        fb[(my+j)*SCREEN_W + mx] = 0xFFFFFFFF;
+        fb[(my+j)*SCREEN_W + mx+MENU_W-1] = 0xFFFFFFFF;
+    }
+
+    // Draw Items
+    int item_y = my + 10;
+    for(int k=0; k<app_count; k++) {
+        int iy = item_y + k * MENU_ITEM_H;
+        
+        // Hover Highlight
+        if(k == menu_hover_idx) {
+             for(int h=0; h<MENU_ITEM_H; h++) {
+                 for(int w=2; w<MENU_W-2; w++) {
+                     fb[(iy+h)*SCREEN_W + mx+w] = MENU_HOVER_COLOR;
+                 }
+             }
+        }
+        
+        draw_screen_text(mx + 20, iy + 8, app_list[k].name, MENU_TEXT_COLOR);
+    }
 }
 
 // Composite all windows AND cursor (using z-index: bg -> windows -> cursor)
@@ -1215,6 +1295,26 @@ main(int argc, char *argv[])
                           cursor_move(mouse_x, mouse_y);
                           prev_mouse_x = mouse_x;
                           prev_mouse_y = mouse_y;
+                          
+                          // Menu Hover Update
+                          if(menu_visible) {
+                                int mx = (SCREEN_W - MENU_W) / 2;
+                                int my = (SCREEN_H - MENU_H) / 2;
+                                int old_hover = menu_hover_idx;
+                                if(mouse_x >= mx && mouse_x < mx + MENU_W &&
+                                   mouse_y >= my && mouse_y < my + MENU_H) {
+                                     int rel_y = mouse_y - (my + 10);
+                                     if(rel_y >= 0 && rel_y < app_count * MENU_ITEM_H) 
+                                         menu_hover_idx = rel_y / MENU_ITEM_H;
+                                     else 
+                                         menu_hover_idx = -1;
+                                } else {
+                                     menu_hover_idx = -1;
+                                }
+                                if(old_hover != menu_hover_idx) {
+                                     mark_dirty(mx, my, MENU_W, MENU_H);
+                                }
+                          }
                           if(focus_win && focus_win->type == WIN_TYPE_CLIENT && focus_win->shm){
                               struct sulu_event sev = {
                                   .type = SULU_EV_MOUSE_MOVE,
@@ -1232,29 +1332,93 @@ main(int argc, char *argv[])
                   if(ev.code == BTN_LEFT){
                       mouse_btn = (ev.value == 1);
                       if(mouse_btn){
-                          // 1. Check Widgets (System Bar)
-                          if(mouse_x >= sysbar.x && mouse_x < sysbar.x + sysbar.w &&
+                          // 0. Check Menu
+                          int handled = 0;
+                          
+                          
+
+                          if(menu_visible) {
+                               int mx = (SCREEN_W - MENU_W) / 2;
+                               int my = (SCREEN_H - MENU_H) / 2;
+                               
+                               if(mouse_x >= mx && mouse_x < mx + MENU_W &&
+                                  mouse_y >= my && mouse_y < my + MENU_H) {
+                                    // Click Inside Menu
+                                    int rel_y = mouse_y - (my + 10);
+                                    if(rel_y >= 0) {
+                                        int idx = rel_y / MENU_ITEM_H;
+                                        if(idx >= 0 && idx < app_count) {
+                                            // Launch App
+                                            if(fork() == 0) {
+                                                char path[64];
+                                                strcpy(path, "/bin/");
+                                                strcat(path, app_list[idx].bin);
+                                                char *argv_app[] = { app_list[idx].bin, 0 };
+                                                exec(path, argv_app);
+                                                exit(0);
+                                            }
+                                            menu_visible = 0;
+                                            
+                                            // Mark Menu Clean
+                                            mark_dirty(mx, my, MENU_W, MENU_H);
+                                            // Mark Button
+                                            mark_dirty(5, sysbar.y, 40, sysbar.h);
+                                        }
+                                    }
+                                    handled = 1;
+                               } else {
+                                    // Click Outside -> Close
+                                    menu_visible = 0;
+                                    
+                                    // Mark Menu Dirty to clear it
+                                    mark_dirty(mx, my, MENU_W, MENU_H);
+                                    // Also mark button dirty
+                                    mark_dirty(5, sysbar.y, 40, sysbar.h);
+                                    
+                                    handled = 1;
+                               }
+                          }
+                          
+                          if(!handled && mouse_x >= sysbar.x && mouse_x < sysbar.x + sysbar.w &&
                              mouse_y >= sysbar.y && mouse_y < sysbar.y + sysbar.h) {
                                if(sysbar.type == WIDGET_TYPE_SYSBAR) {
-                                  // Bar click logic (find button)
-                                  int btn_x = 10;
-                                  Window *sorted_wins[MAX_WINDOWS];
-                                  int win_count = get_all_windows(sorted_wins, MAX_WINDOWS);
-                                  sort_windows_by_id(sorted_wins, win_count);
-
-                                  for(int k = 0; k < win_count; k++) {
-                                      Window *curr = sorted_wins[k];
+                                  // Check Apps Button
+                                  int app_btn_x = 5;
+                                  if(mouse_x >= app_btn_x && mouse_x < app_btn_x + 40) {
+                                      menu_visible = !menu_visible;
+                                      printf("sulu: Apps Clicked! Visible=%d\n", menu_visible);
                                       
-                                          if(mouse_x >= btn_x && mouse_x < btn_x + BAR_BTN_WIDTH) {
-                                              focus_window(curr);
-                                              break;
-                                          }
-                                          btn_x += BAR_BTN_WIDTH + BAR_BTN_MARGIN;
+                                      // Mark Button Dirty
+                                      mark_dirty(app_btn_x, sysbar.y, 40, sysbar.h);
+                                      // Mark Menu Dirty (to draw or clear)
+                                      int mx = (SCREEN_W - MENU_W) / 2;
+                                      int my = (SCREEN_H - MENU_H) / 2;
+                                      mark_dirty(mx, my, MENU_W, MENU_H);
+                                      
+                                      handled = 1;
+                                  }
+                                  
+                                  if(!handled) {
+                                      // Bar click logic (find button)
+                                      int btn_x = 55;
+                                      Window *sorted_wins[MAX_WINDOWS];
+                                      int win_count = get_all_windows(sorted_wins, MAX_WINDOWS);
+                                      sort_windows_by_id(sorted_wins, win_count);
+    
+                                      for(int k = 0; k < win_count; k++) {
+                                          Window *curr = sorted_wins[k];
+                                          
+                                              if(mouse_x >= btn_x && mouse_x < btn_x + BAR_BTN_WIDTH) {
+                                                  focus_window(curr);
+                                                  break;
+                                              }
+                                              btn_x += BAR_BTN_WIDTH + BAR_BTN_MARGIN;
+                                      }
                                   }
                                }
                           } 
                           // 2. Check Windows
-                          else {
+                          else if(!handled) {
                               Window *hit = find_window_at(mouse_x, mouse_y);
                               if(hit){
                                   // Raise/Focus

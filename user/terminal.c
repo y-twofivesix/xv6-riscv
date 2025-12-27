@@ -579,7 +579,7 @@ main(int argc, char *argv[])
             continue;
           }
           write(shell_fd_in, &ch, 1);
-          term_putc(ch);  // Echo regular characters
+          if(ch != '\t') term_putc(ch);  // Echo regular characters (skip TAB)
           sulu_blit(shm, 0, 0, WIN_W, WIN_H);
         }
       } else if (ev.type == SULU_EV_KEY && ev.value == 0) {

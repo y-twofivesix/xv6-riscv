@@ -161,8 +161,9 @@ consoleintr(int c)
       }
 
       // echo back to the user if not in escape
-      // Don't echo backspace - let userspace handle it (so it can guard prompt boundary)
-      if(!in_esc && c != '\b' && c != 0x7f) {
+      // Don't echo backspace - let userspace handle it
+      // Don't echo Tab - let userspace handle completion
+      if(!in_esc && c != '\b' && c != 0x7f && c != '\t') {
         consputc(c);
       }
 

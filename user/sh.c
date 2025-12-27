@@ -201,6 +201,102 @@ add_history(char *cmd)
   history[idx][len] = '\0';
 }
 
+// Helper for tab completion
+int strncmp(const char *p, const char *q, uint n)
+{
+  while(n > 0 && *p && *p == *q)
+    n--, p++, q++;
+  if(n == 0)
+    return 0;
+  return (uchar)*p - (uchar)*q;
+}
+
+void attempt_completion(char *buf, int *n, int *pos, int max_buf)
+{
+    // 1. Find start of current word
+    int start = *pos;
+    while(start > 0 && buf[start-1] != ' ') start--;
+    int len = *pos - start;
+    if(len == 0 || len >= DIRSIZ) return;
+    
+    // Check if first token (command)
+    int is_first = 1;
+    for(int i=0; i<start; i++) {
+        if(buf[i] != ' ') { is_first = 0; break; }
+    }
+
+    char prefix[DIRSIZ+1];
+    memmove(prefix, &buf[start], len);
+    prefix[len] = 0;
+    
+    // 2. Open Directory (Try . then /bin)
+    int fd = open(".", O_RDONLY);
+    if(fd < 0) return;
+    
+    struct dirent de;
+    int matches = 0;
+    char match_name[DIRSIZ+1];
+    
+    // Search Loop Helper
+    for(int pass = 0; pass < 2; pass++) {
+        if(pass == 1) {
+            if(!is_first) break; // Only search /bin for commands
+            if(matches > 0) break; // Found local match, ignore /bin
+            close(fd);
+            fd = open("/bin", O_RDONLY);
+            if(fd < 0) break;
+        }
+        
+        while(read(fd, &de, sizeof(de)) == sizeof(de)){
+            if(de.inum == 0) continue;
+            if(strncmp(de.name, prefix, len) == 0){
+                matches++;
+                memmove(match_name, de.name, DIRSIZ);
+                match_name[DIRSIZ] = 0;
+            }
+        }
+        
+        // Reset read head or close
+        if(pass == 0 && matches > 0) break; 
+    }
+    close(fd);
+    
+    // 3. Complete if single match
+    if(matches == 1){
+        // Find end of name (handle non-null termination in dirent)
+        int dlen = 0;
+        while(dlen < DIRSIZ && match_name[dlen]) dlen++;
+        match_name[dlen] = 0;
+        
+        char *suffix = match_name + len;
+        int slen = strlen(suffix);
+        
+        if(*n + slen >= max_buf - 1) return;
+        
+        // Shift tail
+        if(*pos < *n){
+             for(int i = *n; i >= *pos; i--) buf[i+slen] = buf[i];
+        } else {
+             buf[*n + slen] = 0;
+        }
+        
+        memmove(&buf[*pos], suffix, slen);
+        // int old_pos = *pos;
+        *pos += slen;
+        *n += slen;
+        
+        // Print Suffix
+        printf("%s", suffix);
+        
+        // Redraw tail if needed
+        if(*n > *pos){
+             printf("%s", &buf[*pos]);
+             // Move cursor back
+             for(int k=0; k < (*n - *pos); k++) printf("\b");
+        }
+    }
+}
+
 int
 getcmd(char *buf, int nbuf)
 {
@@ -236,6 +332,10 @@ getcmd(char *buf, int nbuf)
         if(c == '\033'){
           esc_state = 1;
           continue;
+        }
+        if(c == '\t'){
+            attempt_completion(buf, &n, &pos, nbuf);
+            continue;
         }
         if(c == '\b' || c == 0x7f){
           if(pos > 0){

@@ -125,19 +125,19 @@ void main(int argc, char *argv[])
           struct sulu_event ev;
           sulu_event_pop(shm, &ev);
           
-          
           if(ev.type == SULU_EV_KEY || ev.type == SULU_EV_MOUSE_BTN || ev.type == SULU_EV_PASTE || ev.type == SULU_EV_MOUSE_MOVE){
               handle_input(&ev);
           } else if(ev.type == SULU_EV_CLOSE){
                exit(0);
+          } else if(ev.type == SULU_EV_MAXIMIZE){
+               if(sulu_resize(&win, SULU_SCREEN_W, SULU_SCREEN_H) == 0){
+                   shm = win.shm; // Update global pointer
+                   width = win.width;
+                   height = win.height;
+                   render();
+               }
           }
       }
-            // Check for Resize
-       if(shm->width != width || shm->height != height) {
-           width = shm->width;
-           height = shm->height;
-           render();
-       }
 
        usleep(SULU_DEFAULT_FRAME_USEC); 
    }
