@@ -44,3 +44,8 @@
 #define SYS_sendto 43
 #define SYS_recvfrom 44
 #define SYS_sockclose 45
+#define SYS_tcpsocket 46
+#define SYS_tcpconnect 47
+#define SYS_tcpsend 48
+#define SYS_tcprecv 49
+#define SYS_tcpclose 50

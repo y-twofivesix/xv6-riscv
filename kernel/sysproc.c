@@ -686,3 +686,69 @@ sys_sockclose(void)
   sock_free(fd);
   return 0;
 }
+
+// TCP syscalls
+uint64
+sys_tcpsocket(void)
+{
+  return tcp_socket();
+}
+
+uint64
+sys_tcpconnect(void)
+{
+  int fd, port;
+  uint64 ip_va;
+  uint8 ip[4];
+  
+  argint(0, &fd);
+  argaddr(1, &ip_va);
+  argint(2, &port);
+  
+  if(copyin(myproc()->pagetable, ip, ip_va, 4) < 0) return -1;
+  return tcp_connect(fd, ip, port);
+}
+
+uint64
+sys_tcpsend(void)
+{
+  int fd, len;
+  uint64 buf_va;
+  uint8 buf[1024];
+  
+  argint(0, &fd);
+  argaddr(1, &buf_va);
+  argint(2, &len);
+  
+  if(len > sizeof(buf)) len = sizeof(buf);
+  if(copyin(myproc()->pagetable, buf, buf_va, len) < 0) return -1;
+  return tcp_send(fd, buf, len);
+}
+
+uint64
+sys_tcprecv(void)
+{
+  int fd, maxlen;
+  uint64 buf_va;
+  uint8 buf[1024];
+  
+  argint(0, &fd);
+  argaddr(1, &buf_va);
+  argint(2, &maxlen);
+  
+  if(maxlen > sizeof(buf)) maxlen = sizeof(buf);
+  
+  int ret = tcp_recv(fd, buf, maxlen);
+  if(ret > 0) {
+    copyout(myproc()->pagetable, buf_va, buf, ret);
+  }
+  return ret;
+}
+
+uint64
+sys_tcpclose(void)
+{
+  int fd;
+  argint(0, &fd);
+  return tcp_close(fd);
+}

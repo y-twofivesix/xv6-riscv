@@ -164,7 +164,8 @@ UPROGS=\
 	$U/_minesweeper\
 	$U/_ping\
 	$U/_nc\
-	$U/_nslookup
+	$U/_nslookup\
+	$U/_wget
 
 .PHONY: fs.img
 fs.img: mkfs/mkfs README INFO $(UPROGS) user/test_image.bmp

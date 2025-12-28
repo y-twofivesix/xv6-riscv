@@ -287,4 +287,11 @@ int             sock_bind(int fd, uint16 port);
 int             sock_sendto(int fd, void *buf, int len, uint8 *dst_ip, uint16 dport);
 int             sock_recvfrom(int fd, void *buf, int maxlen, uint8 *src_ip, uint16 *src_port);
 
+// TCP (net.c)
+int             tcp_socket(void);
+int             tcp_connect(int fd, uint8 *ip, uint16 port);
+int             tcp_send(int fd, void *data, int len);
+int             tcp_recv(int fd, void *buf, int maxlen);
+int             tcp_close(int fd);
+
 #define NELEM(x) (sizeof(x)/sizeof((x)[0]))

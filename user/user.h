@@ -56,6 +56,11 @@ int sockbind(int fd, int port);
 int sendto(int fd, void *buf, int len, void *dst_ip, int dport);
 int recvfrom(int fd, void *buf, int maxlen, void *src_ip, void *src_port);
 int sockclose(int fd);
+int tcpsocket(void);
+int tcpconnect(int fd, void *ip, int port);
+int tcpsend(int fd, void *buf, int len);
+int tcprecv(int fd, void *buf, int maxlen);
+int tcpclose(int fd);
 void flush_console(void);
 
 // Process info structure (for procinfo syscall)

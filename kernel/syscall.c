@@ -126,6 +126,11 @@ extern uint64 sys_sockbind(void);
 extern uint64 sys_sendto(void);
 extern uint64 sys_recvfrom(void);
 extern uint64 sys_sockclose(void);
+extern uint64 sys_tcpsocket(void);
+extern uint64 sys_tcpconnect(void);
+extern uint64 sys_tcpsend(void);
+extern uint64 sys_tcprecv(void);
+extern uint64 sys_tcpclose(void);
 
 // An array mapping syscall numbers from syscall.h
 // to the function that handles the system call.
@@ -175,6 +180,11 @@ static uint64 (*syscalls[])(void) = {
 [SYS_sendto] sys_sendto,
 [SYS_recvfrom] sys_recvfrom,
 [SYS_sockclose] sys_sockclose,
+[SYS_tcpsocket] sys_tcpsocket,
+[SYS_tcpconnect] sys_tcpconnect,
+[SYS_tcpsend] sys_tcpsend,
+[SYS_tcprecv] sys_tcprecv,
+[SYS_tcpclose] sys_tcpclose,
 };
 
 void

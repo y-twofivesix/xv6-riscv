@@ -141,4 +141,80 @@ int sock_recvfrom(int fd, void *buf, int maxlen, uint8 *src_ip, uint16 *src_port
 
 uint16 ip_checksum(void *data, int len);
 
+// ============== TCP ==============
+
+// TCP header (20 bytes minimum)
+struct tcp_hdr {
+    uint16 sport;      // Source port
+    uint16 dport;      // Destination port
+    uint32 seq;        // Sequence number
+    uint32 ack;        // Acknowledgment number
+    uint8  off;        // Data offset (header len in 32-bit words) << 4
+    uint8  flags;      // Control flags
+    uint16 win;        // Window size
+    uint16 csum;       // Checksum
+    uint16 urg;        // Urgent pointer
+} __attribute__((packed));
+
+// TCP flags
+#define TCP_FIN  0x01
+#define TCP_SYN  0x02
+#define TCP_RST  0x04
+#define TCP_PSH  0x08
+#define TCP_ACK  0x10
+#define TCP_URG  0x20
+
+// TCP connection states
+enum tcp_state {
+    TCP_CLOSED,
+    TCP_SYN_SENT,
+    TCP_ESTABLISHED,
+    TCP_FIN_WAIT_1,
+    TCP_FIN_WAIT_2,
+    TCP_TIME_WAIT,
+    TCP_CLOSE_WAIT,
+    TCP_LAST_ACK
+};
+
+// TCP connection structure
+#define MAX_TCP_CONNS 8
+#define TCP_RX_BUF_SIZE 4096
+
+struct tcp_conn {
+    int used;
+    enum tcp_state state;
+    
+    // Connection identifiers
+    uint8 rip[4];           // Remote IP
+    uint16 lport;           // Local port
+    uint16 rport;           // Remote port
+    
+    // Sequence numbers
+    uint32 snd_una;         // Oldest unacknowledged seq
+    uint32 snd_nxt;         // Next seq to send
+    uint32 irs;             // Initial receive seq
+    uint32 rcv_nxt;         // Next seq expected
+    
+    // Receive buffer
+    uint8 rxbuf[TCP_RX_BUF_SIZE];
+    int rxhead;
+    int rxtail;
+    int rxlen;
+};
+
+#define SOCK_STREAM 1
+
+// TCP API
+int tcp_socket(void);
+int tcp_connect(int fd, uint8 *ip, uint16 port);
+int tcp_send(int fd, void *data, int len);
+int tcp_recv(int fd, void *buf, int maxlen);
+int tcp_close(int fd);
+
+// Internal TCP functions
+void net_handle_tcp(uint8 *pkt, int iplen);
+int net_send_tcp(uint8 *dst_ip, uint16 sport, uint16 dport, 
+                 uint32 seq, uint32 ack, uint8 flags, 
+                 void *data, int len);
+
 #endif // _NET_H_

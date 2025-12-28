@@ -140,6 +140,10 @@ net_handle_ip(uint8 *pkt, int len)
         net_handle_icmp(pkt, ntohs(ip->len));
     } else if(ip->proto == IP_PROTO_UDP) {
         net_handle_udp(pkt, ntohs(ip->len));
+    } else if(ip->proto == IP_PROTO_TCP) {
+        printf("net: TCP packet from %d.%d.%d.%d\n",
+               ip->src[0], ip->src[1], ip->src[2], ip->src[3]);
+        net_handle_tcp(pkt, ntohs(ip->len));
     }
 }
 
@@ -482,4 +486,420 @@ net_poll(void)
 
         net_handle_packet(pkt_buf, len);
     }
+}
+
+// ============== TCP Implementation ==============
+
+static struct tcp_conn tcp_conns[MAX_TCP_CONNS];
+static struct spinlock tcp_lock;
+static int tcp_init_done = 0;
+static uint16 tcp_next_port = 49152;  // Ephemeral port range
+
+static void tcp_init(void) {
+    if(!tcp_init_done) {
+        initlock(&tcp_lock, "tcp");
+        memset(tcp_conns, 0, sizeof(tcp_conns));
+        tcp_init_done = 1;
+    }
+}
+
+// Find connection by remote IP/port and local port
+static struct tcp_conn* tcp_find_conn(uint8 *rip, uint16 rport, uint16 lport) {
+    for(int i = 0; i < MAX_TCP_CONNS; i++) {
+        if(tcp_conns[i].used && tcp_conns[i].lport == lport &&
+           tcp_conns[i].rport == rport &&
+           tcp_conns[i].rip[0] == rip[0] && tcp_conns[i].rip[1] == rip[1] &&
+           tcp_conns[i].rip[2] == rip[2] && tcp_conns[i].rip[3] == rip[3]) {
+            return &tcp_conns[i];
+        }
+    }
+    return 0;
+}
+
+// TCP pseudo-header for checksum
+struct tcp_pseudo {
+    uint8 src[4];
+    uint8 dst[4];
+    uint8 zero;
+    uint8 proto;
+    uint16 len;
+} __attribute__((packed));
+
+// Calculate TCP checksum with pseudo-header
+static uint16 tcp_checksum(uint8 *src_ip, uint8 *dst_ip, struct tcp_hdr *tcp, int tcp_len) {
+    uint32 sum = 0;
+    
+    // Build pseudo-header in memory
+    struct {
+        uint8 src[4];
+        uint8 dst[4];
+        uint8 zero;
+        uint8 proto;
+        uint16 len;
+    } __attribute__((packed)) pseudo;
+    
+    memmove(pseudo.src, src_ip, 4);
+    memmove(pseudo.dst, dst_ip, 4);
+    pseudo.zero = 0;
+    pseudo.proto = IP_PROTO_TCP;
+    pseudo.len = htons(tcp_len);
+    
+    // Sum pseudo-header (12 bytes = 6 x 16-bit words)
+    uint16 *p = (uint16*)&pseudo;
+    for(int i = 0; i < 6; i++) {
+        sum += p[i];
+    }
+    
+    // Sum TCP header + data
+    p = (uint16*)tcp;
+    int len = tcp_len;
+    while(len > 1) {
+        sum += *p++;
+        len -= 2;
+    }
+    if(len == 1) {
+        sum += *(uint8*)p;
+    }
+    
+    // Fold 32-bit sum to 16 bits
+    while(sum >> 16) {
+        sum = (sum & 0xFFFF) + (sum >> 16);
+    }
+    
+    return ~sum;
+}
+
+// Send TCP packet
+int
+net_send_tcp(uint8 *dst_ip, uint16 sport, uint16 dport,
+             uint32 seq, uint32 ack, uint8 flags,
+             void *data, int len)
+{
+    if(!gw_mac_valid) {
+        net_send_arp_request(gw_ip);
+        return -1;
+    }
+    
+    uint8 pkt[MAX_PKT_SIZE];
+    struct eth_hdr *eth = (struct eth_hdr*)pkt;
+    struct ip_hdr *ip = (struct ip_hdr*)(pkt + sizeof(struct eth_hdr));
+    struct tcp_hdr *tcp = (struct tcp_hdr*)(pkt + sizeof(struct eth_hdr) + sizeof(struct ip_hdr));
+    
+    int tcp_hdr_len = 20;  // No options
+    int tcp_len = tcp_hdr_len + len;
+    int ip_len = sizeof(struct ip_hdr) + tcp_len;
+    int total_len = sizeof(struct eth_hdr) + ip_len;
+    
+    // Ethernet
+    memmove(eth->dst, gw_mac, 6);
+    memmove(eth->src, my_mac, 6);
+    eth->type = htons(ETH_TYPE_IP);
+    
+    // IP
+    ip->vhl = 0x45;
+    ip->tos = 0;
+    ip->len = htons(ip_len);
+    ip->id = htons(1234);
+    ip->off = 0;
+    ip->ttl = 64;
+    ip->proto = IP_PROTO_TCP;
+    ip->csum = 0;
+    memmove(ip->src, my_ip, 4);
+    memmove(ip->dst, dst_ip, 4);
+    ip->csum = ip_checksum(ip, sizeof(struct ip_hdr));
+    
+    // TCP
+    tcp->sport = htons(sport);
+    tcp->dport = htons(dport);
+    tcp->seq = htonl(seq);
+    tcp->ack = htonl(ack);
+    tcp->off = (tcp_hdr_len / 4) << 4;  // Data offset
+    tcp->flags = flags;
+    tcp->win = htons(4096);
+    tcp->csum = 0;
+    tcp->urg = 0;
+    
+    // Copy data
+    if(data && len > 0) {
+        memmove((uint8*)tcp + tcp_hdr_len, data, len);
+    }
+    
+    // TCP checksum
+    tcp->csum = tcp_checksum(my_ip, dst_ip, tcp, tcp_len);
+    
+    printf("tcp: sending %d bytes (ip_len=%d, csum=%x)\n", 
+           total_len, ip_len, ntohs(tcp->csum));
+    
+    int ret = net_send(pkt, total_len);
+    printf("tcp: net_send returned %d\n", ret);
+    return ret;
+}
+
+// Handle incoming TCP packet
+void
+net_handle_tcp(uint8 *pkt, int iplen)
+{
+    tcp_init();
+    
+    struct ip_hdr *ip = (struct ip_hdr*)(pkt + sizeof(struct eth_hdr));
+    int ip_hdr_len = (ip->vhl & 0x0F) * 4;
+    struct tcp_hdr *tcp = (struct tcp_hdr*)((uint8*)ip + ip_hdr_len);
+    
+    uint16 sport = ntohs(tcp->sport);
+    uint16 dport = ntohs(tcp->dport);
+    uint32 seq = ntohl(tcp->seq);
+    uint32 ack = ntohl(tcp->ack);
+    uint8 flags = tcp->flags;
+    int tcp_hdr_len = (tcp->off >> 4) * 4;
+    int datalen = iplen - ip_hdr_len - tcp_hdr_len;
+    uint8 *data = (uint8*)tcp + tcp_hdr_len;
+    
+    acquire(&tcp_lock);
+    
+    printf("tcp: IN from %d.%d.%d.%d:%d -> port %d flags=%x seq=%d ack=%d\n",
+           ip->src[0], ip->src[1], ip->src[2], ip->src[3],
+           sport, dport, flags, seq, ack);
+    
+    // Find connection
+    struct tcp_conn *conn = tcp_find_conn(ip->src, sport, dport);
+    if(!conn) {
+        printf("tcp: no matching connection\n");
+        release(&tcp_lock);
+        return;  // No connection for this packet
+    }
+    
+    // State machine
+    switch(conn->state) {
+    case TCP_SYN_SENT:
+        // Expect SYN+ACK
+        if((flags & (TCP_SYN | TCP_ACK)) == (TCP_SYN | TCP_ACK)) {
+            // Verify ACK
+            if(ack == conn->snd_nxt) {
+                conn->irs = seq;
+                conn->rcv_nxt = seq + 1;
+                conn->snd_una = ack;
+                conn->state = TCP_ESTABLISHED;
+                
+                // Send ACK
+                release(&tcp_lock);
+                net_send_tcp(conn->rip, conn->lport, conn->rport,
+                            conn->snd_nxt, conn->rcv_nxt, TCP_ACK, 0, 0);
+                return;
+            }
+        }
+        break;
+        
+    case TCP_ESTABLISHED:
+        // Handle incoming data or FIN
+        if(flags & TCP_FIN) {
+            conn->rcv_nxt = seq + 1;
+            conn->state = TCP_CLOSE_WAIT;
+            release(&tcp_lock);
+            // Send ACK
+            net_send_tcp(conn->rip, conn->lport, conn->rport,
+                        conn->snd_nxt, conn->rcv_nxt, TCP_ACK, 0, 0);
+            return;
+        }
+        
+        if(datalen > 0 && seq == conn->rcv_nxt) {
+            // Copy data to buffer
+            int tocopy = datalen;
+            if(tocopy > TCP_RX_BUF_SIZE - conn->rxlen) {
+                tocopy = TCP_RX_BUF_SIZE - conn->rxlen;
+            }
+            for(int i = 0; i < tocopy; i++) {
+                conn->rxbuf[conn->rxhead] = data[i];
+                conn->rxhead = (conn->rxhead + 1) % TCP_RX_BUF_SIZE;
+            }
+            conn->rxlen += tocopy;
+            conn->rcv_nxt += tocopy;
+            
+            release(&tcp_lock);
+            // Send ACK
+            net_send_tcp(conn->rip, conn->lport, conn->rport,
+                        conn->snd_nxt, conn->rcv_nxt, TCP_ACK, 0, 0);
+            return;
+        }
+        break;
+        
+    case TCP_FIN_WAIT_1:
+        if(flags & TCP_ACK) {
+            conn->state = TCP_FIN_WAIT_2;
+        }
+        if(flags & TCP_FIN) {
+            conn->rcv_nxt = seq + 1;
+            conn->state = TCP_TIME_WAIT;
+            release(&tcp_lock);
+            net_send_tcp(conn->rip, conn->lport, conn->rport,
+                        conn->snd_nxt, conn->rcv_nxt, TCP_ACK, 0, 0);
+            return;
+        }
+        break;
+        
+    case TCP_FIN_WAIT_2:
+        if(flags & TCP_FIN) {
+            conn->rcv_nxt = seq + 1;
+            conn->state = TCP_TIME_WAIT;
+            release(&tcp_lock);
+            net_send_tcp(conn->rip, conn->lport, conn->rport,
+                        conn->snd_nxt, conn->rcv_nxt, TCP_ACK, 0, 0);
+            return;
+        }
+        break;
+        
+    default:
+        break;
+    }
+    
+    release(&tcp_lock);
+}
+
+// Allocate TCP socket
+int
+tcp_socket(void)
+{
+    tcp_init();
+    
+    acquire(&tcp_lock);
+    for(int i = 0; i < MAX_TCP_CONNS; i++) {
+        if(!tcp_conns[i].used) {
+            memset(&tcp_conns[i], 0, sizeof(struct tcp_conn));
+            tcp_conns[i].used = 1;
+            tcp_conns[i].state = TCP_CLOSED;
+            tcp_conns[i].lport = tcp_next_port++;
+            release(&tcp_lock);
+            return i;
+        }
+    }
+    release(&tcp_lock);
+    return -1;
+}
+
+// Connect to remote host
+int
+tcp_connect(int fd, uint8 *ip, uint16 port)
+{
+    if(fd < 0 || fd >= MAX_TCP_CONNS) return -1;
+    
+    acquire(&tcp_lock);
+    if(!tcp_conns[fd].used) {
+        release(&tcp_lock);
+        return -1;
+    }
+    
+    struct tcp_conn *conn = &tcp_conns[fd];
+    memmove(conn->rip, ip, 4);
+    conn->rport = port;
+    conn->snd_nxt = 1000;  // Initial sequence number
+    conn->snd_una = conn->snd_nxt;
+    conn->state = TCP_SYN_SENT;
+    
+    release(&tcp_lock);
+    
+    printf("tcp: sending SYN to %d.%d.%d.%d:%d (lport=%d)\n",
+           ip[0], ip[1], ip[2], ip[3], port, conn->lport);
+    
+    // Send SYN
+    int ret = net_send_tcp(ip, conn->lport, port, 
+                           conn->snd_nxt, 0, TCP_SYN, 0, 0);
+    if(ret < 0) return -1;
+    
+    acquire(&tcp_lock);
+    conn->snd_nxt++;  // SYN consumes one sequence number
+    release(&tcp_lock);
+    
+    return 0;
+}
+
+// Send data on TCP connection
+int
+tcp_send(int fd, void *data, int len)
+{
+    if(fd < 0 || fd >= MAX_TCP_CONNS) return -1;
+    
+    acquire(&tcp_lock);
+    struct tcp_conn *conn = &tcp_conns[fd];
+    if(!conn->used || conn->state != TCP_ESTABLISHED) {
+        release(&tcp_lock);
+        return -1;
+    }
+    
+    uint32 seq = conn->snd_nxt;
+    uint32 ack = conn->rcv_nxt;
+    uint8 rip[4];
+    memmove(rip, conn->rip, 4);
+    uint16 lport = conn->lport;
+    uint16 rport = conn->rport;
+    
+    conn->snd_nxt += len;
+    release(&tcp_lock);
+    
+    return net_send_tcp(rip, lport, rport, seq, ack, TCP_ACK | TCP_PSH, data, len);
+}
+
+// Receive data from TCP connection
+int
+tcp_recv(int fd, void *buf, int maxlen)
+{
+    if(fd < 0 || fd >= MAX_TCP_CONNS) return -1;
+    
+    acquire(&tcp_lock);
+    struct tcp_conn *conn = &tcp_conns[fd];
+    if(!conn->used) {
+        release(&tcp_lock);
+        return -1;
+    }
+    
+    if(conn->rxlen == 0) {
+        release(&tcp_lock);
+        return 0;  // No data
+    }
+    
+    int tocopy = conn->rxlen;
+    if(tocopy > maxlen) tocopy = maxlen;
+    
+    for(int i = 0; i < tocopy; i++) {
+        ((uint8*)buf)[i] = conn->rxbuf[conn->rxtail];
+        conn->rxtail = (conn->rxtail + 1) % TCP_RX_BUF_SIZE;
+    }
+    conn->rxlen -= tocopy;
+    
+    release(&tcp_lock);
+    return tocopy;
+}
+
+// Close TCP connection
+int
+tcp_close(int fd)
+{
+    if(fd < 0 || fd >= MAX_TCP_CONNS) return -1;
+    
+    acquire(&tcp_lock);
+    struct tcp_conn *conn = &tcp_conns[fd];
+    if(!conn->used) {
+        release(&tcp_lock);
+        return -1;
+    }
+    
+    if(conn->state == TCP_ESTABLISHED) {
+        uint32 seq = conn->snd_nxt;
+        uint32 ack = conn->rcv_nxt;
+        uint8 rip[4];
+        memmove(rip, conn->rip, 4);
+        uint16 lport = conn->lport;
+        uint16 rport = conn->rport;
+        
+        conn->state = TCP_FIN_WAIT_1;
+        conn->snd_nxt++;
+        release(&tcp_lock);
+        
+        net_send_tcp(rip, lport, rport, seq, ack, TCP_FIN | TCP_ACK, 0, 0);
+        return 0;
+    }
+    
+    // Just mark as closed
+    conn->used = 0;
+    conn->state = TCP_CLOSED;
+    release(&tcp_lock);
+    return 0;
 }

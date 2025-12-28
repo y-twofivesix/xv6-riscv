@@ -60,4 +60,9 @@ entry("sockbind");
 entry("sendto");
 entry("recvfrom");
 entry("sockclose");
+entry("tcpsocket");
+entry("tcpconnect");
+entry("tcpsend");
+entry("tcprecv");
+entry("tcpclose");
 
