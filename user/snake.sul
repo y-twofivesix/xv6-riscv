@@ -17,8 +17,10 @@ var gameOver = 0;
 var initialized = 0;
 var bodyX = 0;
 var bodyY = 0;
+var needs_redraw = 0;
 
 fn update() {
+    needs_redraw = 2;
     if(initialized == 0) {
         push(bodyX, 200);
         push(bodyY, 200);
@@ -81,6 +83,20 @@ fn on_key() {
     if(key == 106) { dir = 1; } // Right
     if(key == 108) { dir = 2; } // Down
     if(key == 105) { dir = 3; } // Left
+}
+
+fn restart() {
+    headX = 200;
+    headY = 200;
+    dir = 1; 
+    foodX = 100;
+    foodY = 100;
+    i = 0;
+    tick = 0;
+    gameOver = 0;
+    initialized = 0;
+    bodyX = 0;
+    bodyY = 0;
 }
 
 layout(onFrame: update, onKeyDown: on_key, onResize: handle_resize) {

@@ -24,6 +24,14 @@ struct sulu_var {
 };
 struct sulu_var *variables = 0;
 
+// Call frame for local variable scope
+struct sulu_frame {
+    struct sulu_var *locals;
+    int return_val;
+    struct sulu_frame *prev;
+};
+struct sulu_frame *current_frame = 0;
+
 // Forward declarations
 void exec_node(struct sulu_node *n);
 int eval_expr(struct sulu_node *n);
@@ -34,6 +42,8 @@ void push_internal(struct sulu_var *v, int val);
 void insert_at_internal(struct sulu_var *v, int idx, int val);
 void delete_at_internal(struct sulu_var *v, int idx);
 struct sulu_var* get_var_ptr(char *name);
+struct sulu_node* find_fn(char *name);
+int call_fn(struct sulu_node *fn);
 
 // Helper for strings
 char* eval_expr_str(struct sulu_node *n) {
@@ -48,24 +58,32 @@ char* eval_expr_str(struct sulu_node *n) {
 
 // Symbol Table
 int get_var(char *name) {
+    if(current_frame) {
+        struct sulu_var *v = current_frame->locals;
+        while(v) {
+            if(strcmp(v->name, name) == 0) return v->val_int;
+            v = v->next;
+        }
+    }
     struct sulu_var *v = variables;
     while(v) {
-        if(strcmp(v->name, name) == 0) {
-            // printf("sulu: get_var %s = %d\n", name, v->val_int);
-            return v->val_int;
-        }
+        if(strcmp(v->name, name) == 0) return v->val_int;
         v = v->next;
     }
     return 0;
 }
 
 void set_var(char *name, int val) {
+    if(current_frame) {
+        struct sulu_var *v = current_frame->locals;
+        while(v) {
+            if(strcmp(v->name, name) == 0) { v->val_int = val; return; }
+            v = v->next;
+        }
+    }
     struct sulu_var *v = variables;
     while(v) {
-        if(strcmp(v->name, name) == 0) {
-            v->val_int = val;
-            return;
-        }
+        if(strcmp(v->name, name) == 0) { v->val_int = val; return; }
         v = v->next;
     }
     struct sulu_var *new_v = malloc(sizeof(struct sulu_var));
@@ -76,6 +94,24 @@ void set_var(char *name, int val) {
     new_v->array_len = 0;
     new_v->next = variables;
     variables = new_v;
+}
+
+// Create or update a variable in the current local frame (or globals if not in a frame)
+void set_local(char *name, int val) {
+    if(!current_frame) { set_var(name, val); return; }
+    struct sulu_var *v = current_frame->locals;
+    while(v) {
+        if(strcmp(v->name, name) == 0) { v->val_int = val; return; }
+        v = v->next;
+    }
+    struct sulu_var *new_v = malloc(sizeof(struct sulu_var));
+    strncpy(new_v->name, name, 31);
+    new_v->val_int = val;
+    new_v->val_str = 0;
+    new_v->array = 0;
+    new_v->array_len = 0;
+    new_v->next = current_frame->locals;
+    current_frame->locals = new_v;
 }
 
 void set_var_str(char *name, char *val) {
@@ -97,6 +133,13 @@ void set_var_str(char *name, char *val) {
     variables = new_v;
 }
 struct sulu_var* get_var_ptr(char *name) {
+    if(current_frame) {
+        struct sulu_var *v = current_frame->locals;
+        while(v) {
+            if(strcmp(v->name, name) == 0) return v;
+            v = v->next;
+        }
+    }
     struct sulu_var *v = variables;
     while(v) {
         if(strcmp(v->name, name) == 0) return v;
@@ -124,41 +167,30 @@ int exec_native(char *name, struct sulu_node *args) {
         return 0;
     }
     if(strcmp(name, "at") == 0) {
-        // at(arr, idx)
         if(!args || !args->next) return 0;
         struct sulu_var *v = get_var_ptr(args->ident);
         int idx = eval_expr(args->next);
         if(v && v->array && idx >= 0 && idx < v->array_len) return v->array[idx];
+        return 0;
     }
     if(strcmp(name, "push") == 0) {
-        // push(arr, val)
-        if(!args || !args->next) return 0;
-        struct sulu_var *v = get_var_ptr(args->ident);
-        int val = eval_expr(args->next);
-        if(v) {
-            if(!v->array) {
-                v->array = malloc(sizeof(int) * 100);
-                v->array_len = 0;
-            }
-            if(v->array_len < 100) {
-                v->array[v->array_len++] = val;
-                // printf("sulu: push %s val=%d len=%d\n", v->name, val, v->array_len);
-            }
+        if(args && args->next) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            if(v) push_internal(v, eval_expr(args->next));
         }
+        return 0;
     }
     if(strcmp(name, "len") == 0) {
         if(!args) return 0;
         struct sulu_var *v = get_var_ptr(args->ident);
-        if(v) {
-            // printf("sulu: len(%s) = %d\n", args->ident, v->array_len);
-            return v->array_len;
-        }
+        if(v) return v->array_len;
         return 0;
     }
     if(strcmp(name, "clear_arr") == 0) {
         if(!args) return 0;
         struct sulu_var *v = get_var_ptr(args->ident);
         if(v) v->array_len = 0;
+        return 0;
     }
     if(strcmp(name, "print") == 0) {
         struct sulu_node *curr = args;
@@ -172,25 +204,17 @@ int exec_native(char *name, struct sulu_node *args) {
         return 0;
     }
     if(strcmp(name, "update_at") == 0) {
-        // update_at(arr, idx, val)
         if(!args || !args->next || !args->next->next) return 0;
         struct sulu_var *v = get_var_ptr(args->ident);
         int idx = eval_expr(args->next);
         int val = eval_expr(args->next->next);
         if(v && v->array && idx >= 0 && idx < v->array_len) {
             v->array[idx] = val;
-            // printf("sulu: update_at %s[%d]=%d\n", v->name, idx, val);
         }
+        return 0;
     }
     if(strcmp(name, "usleep") == 0) {
         if(args) usleep(eval_expr(args));
-        return 0;
-    }
-    if(strcmp(name, "push") == 0) {
-        if(args && args->next) {
-            struct sulu_var *v = get_var_ptr(args->ident);
-            if(v) push_internal(v, eval_expr(args->next));
-        }
         return 0;
     }
     if(strcmp(name, "pop") == 0) {
@@ -218,7 +242,7 @@ int exec_native(char *name, struct sulu_node *args) {
                 int fd = open(path, O_RDONLY);
                 if(fd >= 0) {
                     char c;
-                    clear_arr_internal(v);
+                    v->array_len = 0; // Don't free, just reset for speed
                     while(read(fd, &c, 1) > 0) {
                         push_internal(v, (int)c);
                     }
@@ -232,12 +256,15 @@ int exec_native(char *name, struct sulu_node *args) {
         if(args && args->next) {
             char *path = eval_expr_str(args);
             struct sulu_var *v = get_var_ptr(args->next->ident);
-            if(path && v) {
+            if(path && v && v->array) {
                 int fd = open(path, O_WRONLY|O_CREATE|O_TRUNC);
                 if(fd >= 0) {
-                    for(int i = 0; i < v->array_len; i++) {
-                        char c = (char)v->array[i];
-                        write(fd, &c, 1);
+                    // Use a buffer to avoid thousands of 1-byte syscalls
+                    char *tmp = malloc(v->array_len);
+                    if(tmp) {
+                        for(int i = 0; i < v->array_len; i++) tmp[i] = (char)v->array[i];
+                        write(fd, tmp, v->array_len);
+                        free(tmp);
                     }
                     close(fd);
                 }
@@ -254,7 +281,6 @@ int exec_native(char *name, struct sulu_node *args) {
         return 0;
     }
     if(strcmp(name, "insert_at") == 0) {
-        // insert_at(arr, idx, val)
         if(args && args->next && args->next->next) {
             struct sulu_var *v = get_var_ptr(args->ident);
             int idx = eval_expr(args->next);
@@ -264,7 +290,6 @@ int exec_native(char *name, struct sulu_node *args) {
         return 0;
     }
     if(strcmp(name, "delete_at") == 0) {
-        // delete_at(arr, idx)
         if(args && args->next) {
             struct sulu_var *v = get_var_ptr(args->ident);
             int idx = eval_expr(args->next);
@@ -273,7 +298,6 @@ int exec_native(char *name, struct sulu_node *args) {
         return 0;
     }
     if(strcmp(name, "cursor_line") == 0) {
-        // cursor_line(arr, cursor_idx) -> line number (0-based)
         if(args && args->next) {
             struct sulu_var *v = get_var_ptr(args->ident);
             int cidx = eval_expr(args->next);
@@ -288,7 +312,6 @@ int exec_native(char *name, struct sulu_node *args) {
         return 0;
     }
     if(strcmp(name, "cursor_col") == 0) {
-        // cursor_col(arr, cursor_idx) -> column (0-based)
         if(args && args->next) {
             struct sulu_var *v = get_var_ptr(args->ident);
             int cidx = eval_expr(args->next);
@@ -305,7 +328,6 @@ int exec_native(char *name, struct sulu_node *args) {
         return 0;
     }
     if(strcmp(name, "line_start") == 0) {
-        // line_start(arr, line_num) -> array index of first char on that line
         if(args && args->next) {
             struct sulu_var *v = get_var_ptr(args->ident);
             int line_num = eval_expr(args->next);
@@ -324,7 +346,6 @@ int exec_native(char *name, struct sulu_node *args) {
         return 0;
     }
     if(strcmp(name, "line_count") == 0) {
-        // line_count(arr) -> total number of lines
         if(args) {
             struct sulu_var *v = get_var_ptr(args->ident);
             if(v && v->array) {
@@ -337,8 +358,6 @@ int exec_native(char *name, struct sulu_node *args) {
         return 0;
     }
     if(strcmp(name, "xy_to_cursor") == 0) {
-        // xy_to_cursor(arr, rx, ry, tb_x, tb_y, char_w, char_h, tb_w, scroll)
-        // Returns cursor index corresponding to a mouse click at (rx, ry)
         if(!args) return 0;
         struct sulu_node *a = args;
         struct sulu_var *v = get_var_ptr(a->ident); a = a->next;
@@ -377,6 +396,9 @@ int exec_native(char *name, struct sulu_node *args) {
         }
         return v->array_len;
     }
+    // Fallback: script-defined function
+    struct sulu_node *fn = find_fn(name);
+    if(fn) return call_fn(fn);
     return 0;
 }
 
@@ -497,6 +519,41 @@ int eval_expr(struct sulu_node *n) {
     return 0;
 }
 
+// --- Call Frame Helpers ---
+
+void push_frame() {
+    struct sulu_frame *f = malloc(sizeof(struct sulu_frame));
+    f->locals = 0;
+    f->return_val = 0;
+    f->prev = current_frame;
+    current_frame = f;
+}
+
+int pop_frame() {
+    if(!current_frame) return 0;
+    struct sulu_frame *f = current_frame;
+    int ret = f->return_val;
+    current_frame = f->prev;
+    struct sulu_var *v = f->locals;
+    while(v) {
+        struct sulu_var *next = v->next;
+        if(v->array) free(v->array);
+        free(v);
+        v = next;
+    }
+    free(f);
+    return ret;
+}
+
+struct sulu_node* find_fn(char *name) {
+    struct sulu_node *n = root_ast->children;
+    while(n) {
+        if(n->type == NODE_FN_DEF && strcmp(n->ident, name) == 0) return n;
+        n = n->next;
+    }
+    return 0;
+}
+
 // --- Statement Executor ---
 
 void exec_node(struct sulu_node *n) {
@@ -504,14 +561,14 @@ void exec_node(struct sulu_node *n) {
     // printf("sulu: exec_node type=%d ident=%s\n", n->type, n->ident ? n->ident : "NULL");
     
     switch(n->type) {
-        case NODE_VAR_DEF:
-        case NODE_ASSIGN: {
-            if(n->type == NODE_ASSIGN && (strstr(n->ident, "[") || strchr(n->ident, '['))) {
-                // Future: handle arr[idx] = val here if we want real property assignment
-                // For now use native functions for better control
-            }
+        case NODE_VAR_DEF: {
             int val = eval_expr(n->expr_left);
-            set_var(n->ident, val);
+            set_local(n->ident, val);  // creates local in current frame, or global at top level
+            break;
+        }
+        case NODE_ASSIGN: {
+            int val = eval_expr(n->expr_left);
+            set_var(n->ident, val);  // updates existing var in frame or globals
             break;
         }
         case NODE_FOR: {
@@ -539,7 +596,8 @@ void exec_node(struct sulu_node *n) {
             break;
         }
         case NODE_RETURN: {
-            eval_expr(n->expr_left);
+            int val = eval_expr(n->expr_left);
+            if(current_frame) current_frame->return_val = val;
             did_return = 1;
             break;
         }
@@ -551,19 +609,21 @@ void exec_node(struct sulu_node *n) {
     }
 }
 
+int call_fn(struct sulu_node *fn) {
+    push_frame();
+    int prev_did_return = did_return;
+    did_return = 0;
+    exec_node(fn->children);
+    int ret = current_frame->return_val;
+    did_return = prev_did_return;
+    pop_frame();
+    return ret;
+}
+
 void exec_func(char *name) {
     if(!name || !name[0]) return;
-    struct sulu_node *curr = root_ast->children;
-    while(curr) {
-        if(curr->type == NODE_FN_DEF && strcmp(curr->ident, name) == 0) {
-            // printf("sulu: exec_func %s\n", name);
-            did_return = 0; // Reset for function call
-            exec_node(curr->children); // Executes the block
-            did_return = 0; // Reset after finish
-            return;
-        }
-        curr = curr->next;
-    }
+    struct sulu_node *fn = find_fn(name);
+    if(fn) call_fn(fn);
 }
 
 // --- Helper Functions (Updated for Dynamic Lookups) ---
@@ -727,9 +787,83 @@ void draw_local_rect(int x, int y, int w, int h, uint32 color) {
     sulu_fill_rect(win.shm, x, y, w, h, color);
 }
 
-// --- Textbox Renderer ---
-// Renders a char array with a visible cursor.
-// Props: content (arr), cursor (int idx), x, y, width, height, color, bg, scroll (line offset)
+// --- Textbox Renderer with Line-Level Dirty Tracking ---
+//
+// Tracks previous cursor, scroll, and content length to compute minimal
+// dirty line range. Only clears+redraws those strips, then blit_rects.
+
+// Per-textbox cached state (single textbox assumption for now)
+static int tb_prev_cursor  = -2;  // previous cursor idx
+static int tb_prev_scroll  = -1;  // previous scroll offset
+static int tb_prev_content_len = -1;  // previous content array length
+static int tb_first_paint = 1;
+static int tb_full_redraw = 0;
+
+// Compute which logical line a cursor index falls on
+static int cursor_to_line(struct sulu_var *v, int idx) {
+    int line = 0;
+    int lim = idx < v->array_len ? idx : v->array_len;
+    for(int i = 0; i < lim; i++)
+        if(v->array[i] == '\n') line++;
+    return line;
+}
+
+// Render a single line strip (clear + draw chars on that line)
+static void render_line_strip(struct sulu_var *v, int target_line, int scroll,
+        int tb_x, int tb_y, int tb_w, int tb_h,
+        int cursor_idx, uint32 text_color, uint32 bg_color) {
+    const int CHAR_W = 8, CHAR_H = 10, PAD = 4;
+    int start_x = tb_x + PAD;
+    int max_x   = tb_x + tb_w - PAD;
+    int screen_line = target_line - scroll;
+    int sy = tb_y + PAD + screen_line * CHAR_H;
+
+    // Clip — if off-screen, skip
+    if(sy + CHAR_H < tb_y + PAD || sy >= tb_y + tb_h - PAD) return;
+
+    // Clear this strip
+    draw_local_rect(tb_x + 1, sy, tb_w - 2, CHAR_H, bg_color);
+
+    // Find the start index of target_line in the array
+    int idx = 0;
+    int line = 0;
+    int total = v ? v->array_len : 0;
+    if(target_line > 0) {
+        int found = 0;
+        for(int i = 0; i < total; i++) {
+            if(v->array[i] == '\n') {
+                line++;
+                if(line == target_line) { idx = i + 1; found = 1; break; }
+            }
+        }
+        if(!found) return; // target_line doesn't exist in content — strip is already cleared
+    }
+
+    // Draw characters on this line
+    int lx = start_x;
+    for(int i = idx; i < total; i++) {
+        // Draw cursor at this position
+        if(i == cursor_idx) {
+            int cx = lx < max_x ? lx : max_x;
+            draw_local_rect(cx, sy, 2, CHAR_H, 0xFFFFFFFF);
+        }
+        char c = (char)v->array[i];
+        if(c == '\n') break;  // End of this line
+        if(lx + CHAR_W <= max_x) {
+            sulu_draw_char(win.shm, lx, sy, c, text_color);
+        }
+        lx += CHAR_W;
+    }
+    // Cursor at end-of-file: only draw if this strip IS the cursor's line
+    if(cursor_idx >= idx && cursor_idx == total) {
+        int cursor_line = v ? cursor_to_line(v, total) : 0;
+        if(cursor_line == target_line) {
+            int cx = lx < max_x ? lx : max_x;
+            draw_local_rect(cx, sy, 2, CHAR_H, 0xFFFFFFFF);
+        }
+    }
+}
+
 void draw_textbox(struct sulu_node *n) {
     int tb_x  = get_prop_int(n, "x", n->x);
     int tb_y  = get_prop_int(n, "y", n->y);
@@ -752,42 +886,76 @@ void draw_textbox(struct sulu_node *n) {
         prop = prop->next;
     }
 
-    draw_local_rect(tb_x, tb_y, tb_w, tb_h, bg_color);
-    sulu_draw_rect(win.shm, tb_x, tb_y, tb_w, tb_h, 0xFF444444);
-
-    const int CHAR_W = 8;
-    const int CHAR_H = 10;
-    const int PAD    = 4;
-    int start_x = tb_x + PAD;
-    int max_x   = tb_x + tb_w - PAD;
-    int max_y   = tb_y + tb_h - PAD;
-
-    int logical_x    = start_x;
-    int logical_line = 0;
+    const int CHAR_H = 10, PAD = 4;
+    int vis_lines = (tb_h - PAD * 2) / CHAR_H;
     int total = v ? v->array_len : 0;
 
-    for(int i = 0; i <= total; i++) {
-        int screen_y = tb_y + PAD + (logical_line - scroll) * CHAR_H;
+    // Determine dirty line range
+    int dirty_min = 0;
+    int dirty_max = scroll + vis_lines;  // redraw everything by default
+    int need_border = 0;
 
-        // Draw cursor before char at position i
-        if(i == cursor_idx && screen_y >= tb_y + PAD && screen_y + CHAR_H <= max_y) {
-            int cx = logical_x < max_x ? logical_x : max_x;
-            draw_local_rect(cx, screen_y, 2, CHAR_H, 0xFFFFFFFF);
+    if(tb_first_paint || tb_full_redraw || scroll != tb_prev_scroll) {
+        // Full redraw: scroll changed, first paint, or forced full redraw
+        dirty_min = scroll;
+        dirty_max = scroll + vis_lines;
+        need_border = 1;
+        tb_first_paint = 0;
+    } else if(total != tb_prev_content_len) {
+        // Content changed (insert/delete)
+        // Cursor line and everything below it could have shifted
+        int cur_line = v ? cursor_to_line(v, cursor_idx < total ? cursor_idx : total) : 0;
+        dirty_min = cur_line;
+        dirty_max = scroll + vis_lines;  // everything from cursor line down
+
+        // Also redraw old cursor line if it's different
+        if(tb_prev_cursor >= 0 && tb_prev_cursor != cursor_idx) {
+            int old_line = v ? cursor_to_line(v, tb_prev_cursor < total ? tb_prev_cursor : total) : 0;
+            if(old_line < dirty_min) dirty_min = old_line;
         }
-
-        if(i == total) break;
-
-        char c = (char)v->array[i];
-        if(c == '\n') {
-            logical_line++;
-            logical_x = start_x;
-        } else {
-            if(screen_y >= tb_y + PAD && screen_y + CHAR_H <= max_y && logical_x + CHAR_W <= max_x) {
-                sulu_draw_char(win.shm, logical_x, screen_y, c, text_color);
-            }
-            logical_x += CHAR_W;
+    } else if(cursor_idx != tb_prev_cursor) {
+        // Cursor moved only — just redraw the 2 affected lines
+        int cur_line = v ? cursor_to_line(v, cursor_idx < total ? cursor_idx : total) : 0;
+        int old_line = cur_line;
+        if(tb_prev_cursor >= 0) {
+            old_line = v ? cursor_to_line(v, tb_prev_cursor < total ? tb_prev_cursor : total) : 0;
         }
+        dirty_min = cur_line < old_line ? cur_line : old_line;
+        dirty_max = (cur_line > old_line ? cur_line : old_line) + 1;
+    } else {
+        // Nothing changed — skip drawing entirely but update blit trackers
+        return;
     }
+
+    // Clamp to visible range
+    if(dirty_min < scroll) dirty_min = scroll;
+    if(dirty_max > scroll + vis_lines) dirty_max = scroll + vis_lines;
+
+    // On first paint or scroll change, draw border
+    if(need_border) {
+        draw_local_rect(tb_x, tb_y, tb_w, tb_h, bg_color);
+        sulu_draw_rect(win.shm, tb_x, tb_y, tb_w, tb_h, 0xFF444444);
+    }
+
+    // Render only the dirty lines
+    for(int line = dirty_min; line < dirty_max; line++) {
+        render_line_strip(v, line, scroll, tb_x, tb_y, tb_w, tb_h,
+                          cursor_idx, text_color, bg_color);
+    }
+
+    // Partial blit: only the dirty region
+    int blit_y = tb_y + PAD + (dirty_min - scroll) * CHAR_H;
+    int blit_h = (dirty_max - dirty_min) * CHAR_H;
+    if(blit_y < tb_y) { blit_h -= (tb_y - blit_y); blit_y = tb_y; }
+    if(blit_y + blit_h > tb_y + tb_h) blit_h = tb_y + tb_h - blit_y;
+    if(blit_h > 0) {
+        sulu_blit_rect(&win, tb_x, blit_y, tb_w, blit_h);
+    }
+
+    // Update tracked state
+    tb_prev_cursor = cursor_idx;
+    tb_prev_scroll = scroll;
+    tb_prev_content_len = total;
 }
 
 void draw_node(struct sulu_node *n) {
@@ -836,7 +1004,8 @@ void draw_node(struct sulu_node *n) {
         case NODE_BUTTON: {
             int bx = get_prop_int(n, "x", n->x);
             int by = get_prop_int(n, "y", n->y);
-            draw_local_rect(bx, by, n->w, n->h, 0xFFCCCCCC);
+            uint32 bc = (uint32)get_prop_int(n, "color", 0xFFCCCCCC);
+            draw_local_rect(bx, by, n->w, n->h, bc);
             sulu_draw_rect(win.shm, bx, by, n->w, n->h, 0xFFFFFFFF); // White border
             draw_local_text(bx + 10, by + 8, get_prop_str(n, "label", "Button"), 0xFF000000);
             break;
@@ -902,6 +1071,11 @@ void draw_node(struct sulu_node *n) {
             }
             break;
         }
+        case NODE_VAR_DEF:
+        case NODE_ASSIGN:
+        case NODE_CALL:
+            exec_node(n);
+            break;
         default:
             break;
     }
@@ -928,8 +1102,9 @@ struct sulu_node* find_clicked_node(struct sulu_node *n, int x, int y) {
 
 // --- Main Loop ---
 
-void render_app() {
-    did_return = 0; // CRITICAL: Reset return flag before rendering
+// Full-window render (used for first paint, resize, etc.)
+void render_app_full() {
+    did_return = 0;
     static int initialized_buffers = 0;
     struct sulu_node *win_def = 0;
     struct sulu_node *layout_def = 0;
@@ -942,11 +1117,8 @@ void render_app() {
     }
     
     uint32 bg = 0xFFFFFFFF;
-    if(win_def) {
-        bg = (uint32)get_prop_int(win_def, "bg", 0xFFFFFFFF);
-    }
+    if(win_def) bg = (uint32)get_prop_int(win_def, "bg", 0xFFFFFFFF);
     
-    // Clear both buffers on first render to avoid white frames
     if(!initialized_buffers && (win.shm->flags & SULU_FLAG_DOUBLE_BUFFER)) {
         draw_local_rect(0, 0, win.width, win.height, bg);
         sulu_swap(&win);
@@ -954,6 +1126,9 @@ void render_app() {
         sulu_swap(&win);
         initialized_buffers = 1;
     }
+
+    // Force textbox to do a complete repaint
+    tb_full_redraw = 1;
 
     draw_local_rect(0, 0, win.width, win.height, bg);
     
@@ -963,6 +1138,47 @@ void render_app() {
     }
     
     sulu_swap(&win);
+}
+
+// Incremental render — only redraws textbox dirty lines, skips everything else.
+// Non-textbox nodes (header bar, buttons) are only redrawn on full render.
+//
+// DOUBLE-BUFFER TRICK: All Sulu drawing helpers internally call sulu_pixels(shm)
+// which uses shm->front_buf to select the buffer. By temporarily flipping
+// front_buf, we redirect ALL pixel writes to the front buffer (what the compositor
+// reads). After drawing, we restore it and issue blit_rect for the dirty region.
+void render_app_incremental() {
+    did_return = 0;
+    struct sulu_node *layout_def = 0;
+    struct sulu_node *curr = root_ast->children;
+    while(curr) {
+        if(curr->type == NODE_LAYOUT_DEF) layout_def = curr;
+        curr = curr->next;
+    }
+    
+    if(layout_def) {
+        layout_node(layout_def, 0, 0, win.width);
+
+        // Flip front_buf so sulu_pixels() returns the front buffer
+        int saved_front = win.shm->front_buf;
+        if(win.shm->flags & SULU_FLAG_DOUBLE_BUFFER) {
+            // sulu_pixels returns the buffer that is NOT front_buf.
+            // So to write to the currently-displayed (front) buffer,
+            // we flip front_buf temporarily.
+            win.shm->front_buf = (saved_front == 0) ? 1 : 0;
+        }
+
+        // Only draw textbox nodes — they handle their own partial blit
+        struct sulu_node *child = layout_def->children;
+        while(child) {
+            if(child->type == NODE_TEXTBOX) draw_textbox(child);
+            child = child->next;
+        }
+
+        // Restore original front_buf
+        win.shm->front_buf = saved_front;
+    }
+    // No sulu_swap here — textbox does its own blit_rect
 }
 
 int main(int argc, char *argv[]) {
@@ -1029,49 +1245,71 @@ int main(int argc, char *argv[]) {
     else set_var_str("arg2", "");
     
     struct sulu_event ev;
-    char *frame_func = 0;
+    char *init_func    = 0;
+    char *frame_func   = 0;
     char *keydown_func = 0;
-    char *keyup_func = 0;
-    char *resize_func = 0;
+    char *keyup_func   = 0;
+    char *resize_func  = 0;
     char *mousedown_func = 0;
     if(layout_node_ref) {
-        frame_func    = get_prop_str(layout_node_ref, "onFrame", 0);
-        keydown_func  = get_prop_str(layout_node_ref, "onKeyDown", 0);
-        keyup_func    = get_prop_str(layout_node_ref, "onKeyUp", 0);
-        resize_func   = get_prop_str(layout_node_ref, "onResize", 0);
+        init_func      = get_prop_str(layout_node_ref, "onInit",    0);
+        frame_func     = get_prop_str(layout_node_ref, "onFrame",   0);
+        keydown_func   = get_prop_str(layout_node_ref, "onKeyDown", 0);
+        keyup_func     = get_prop_str(layout_node_ref, "onKeyUp",   0);
+        resize_func    = get_prop_str(layout_node_ref, "onResize",  0);
         mousedown_func = get_prop_str(layout_node_ref, "onMouseDown", 0);
+        char *wheel_func = get_prop_str(layout_node_ref, "onMouseWheel", 0);
+        (void)wheel_func; // Will use in loop
     }
-    
+
     set_var("windowW", win.width);
     set_var("windowH", win.height);
+    set_var("mouse_wheel", 0);
+    set_var("needs_redraw", 0);
+
+    // One-shot initialisation before the loop
+    if(init_func) exec_func(init_func);
+
+    int dirty = 2; // 2 = full redraw, 1 = incremental, 0 = idle
 
     while(1) {
         // Animation/Frame Logic
         if(frame_func) {
             exec_func(frame_func);
+            // Only force dirty if script explicitly requested it
+            int nr = get_var("needs_redraw");
+            if(nr == 2) { dirty = 2; set_var("needs_redraw", 0); }
+            else if(nr == 1) { if(dirty < 1) dirty = 1; set_var("needs_redraw", 0); }
+            // If needs_redraw was not set, don't touch dirty
         }
-        
-        // Full frame render
-        render_app();
+
+        // Render based on dirty level
+        if(dirty == 2) {
+            render_app_full();
+            dirty = 0;
+        } else if(dirty >= 1) {
+            render_app_incremental();
+            dirty = 0;
+        }
 
         // Process Events
         while (sulu_event_pop(win.shm, &ev) >= 0) {
             if(ev.type == SULU_EV_CLOSE) goto cleanup;
-            
+
             if(ev.type == SULU_EV_KEY) {
                 set_var("key", ev.code);
                 set_var("key_val", ev.value);
-                if(ev.value == 1 && keydown_func) exec_func(keydown_func);
-                if(ev.value == 0 && keyup_func) exec_func(keyup_func);
+                if(ev.value == 1 && keydown_func) { exec_func(keydown_func); if(dirty < 1) dirty = 1; }
+                if(ev.value == 0 && keyup_func)   { exec_func(keyup_func);   if(dirty < 1) dirty = 1; }
             }
 
             if(ev.type == SULU_EV_RESIZE) {
-                // Sulu WM resized us
-                win.width = ev.x;
+                win.width  = ev.x;
                 win.height = ev.y;
                 set_var("windowW", win.width);
                 set_var("windowH", win.height);
                 if(resize_func) exec_func(resize_func);
+                dirty = 2; // resize always needs full redraw
             }
 
             if(ev.type == SULU_EV_MOUSE_BTN && ev.value == 1) { // L-Down
@@ -1085,9 +1323,19 @@ int main(int argc, char *argv[]) {
                         if(callback) exec_func(callback);
                     }
                 }
+                if(dirty < 1) dirty = 1;
+            }
+
+            if(ev.type == SULU_EV_MOUSE_WHEEL) {
+                set_var("mouse_wheel", ev.value);
+                if(layout_node_ref) {
+                    char *wheel_func = get_prop_str(layout_node_ref, "onMouseWheel", 0);
+                    if(wheel_func) exec_func(wheel_func);
+                }
+                if(dirty < 1) dirty = 1;
             }
         }
-        
+
         usleep(16000); // ~60 FPS
     }
     

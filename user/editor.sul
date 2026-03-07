@@ -13,6 +13,8 @@ var scroll   = 0;   // first visible line number
 var shift    = 0;
 var ctrl     = 0;
 var initialized = 0;
+var needs_redraw = 0;
+var is_dirty = 0;
 
 // Textbox layout constants (must match textbox element below)
 var TB_X  = 0;
@@ -27,110 +29,110 @@ fn on_frame() {
         read_file(arg1, content);
         cursor = len(content);
         initialized = 1;
+        needs_redraw = 2;
     }
 }
 
-// --- Save ---
+// --- Helpers ---
 fn do_save() {
     write_file(arg1, content);
+    is_dirty = 0;
+    needs_redraw = 2; // Redraw to update button color
+}
+
+fn clamp_scroll() {
+    var cl = cursor_line(content, cursor);
+    if(cl < scroll) { scroll = cl; }
+    if(cl >= scroll + VIS) { scroll = cl - VIS + 1; }
+}
+
+fn on_mouse_wheel() {
+    // mouse_wheel is +1 for up, -1 for down (standard)
+    // We want to scroll up (decrement scroll) or down (increment scroll)
+    scroll = scroll - mouse_wheel; 
+    
+    // Clamp scroll
+    if(scroll < 0) { scroll = 0; }
+    var total_lines = line_count(content);
+    if(scroll >= total_lines) { scroll = total_lines - 1; }
+    if(scroll < 0) { scroll = 0; }
+}
+
+fn move_up() {
+    var cl = cursor_line(content, cursor);
+    if(cl > 0) {
+        var cc = cursor_col(content, cursor);
+        var ps = line_start(content, cl - 1);
+        var cs = line_start(content, cl);
+        var mc = cs - ps - 1;
+        if(mc < 0) { mc = 0; }
+        if(cc > mc) { cc = mc; }
+        cursor = ps + cc;
+    }
+}
+
+fn move_down() {
+    var cl = cursor_line(content, cursor);
+    var tl = line_count(content);
+    if(cl < tl - 1) {
+        var cc = cursor_col(content, cursor);
+        var ns = line_start(content, cl + 1);
+        var es = line_start(content, cl + 2);
+        var mc = es - ns - 1;
+        if(mc < 0) { mc = 0; }
+        if(cc > mc) { cc = mc; }
+        cursor = ns + cc;
+    }
 }
 
 // --- Key Events ---
 fn on_keydown() {
-    // Track modifiers — early return so they don't type a char
     if(key == 42) { shift = 1; return 0; }   // LShift
     if(key == 54) { shift = 1; return 0; }   // RShift
     if(key == 29) { ctrl  = 1; return 0; }   // LCtrl
 
-    // Ctrl combos
     if(ctrl == 1) {
-        if(key == 31) { write_file(arg1, content); }  // Ctrl+S
+        if(key == 31) { do_save(); }           // Ctrl+S
         return 0;
     }
 
-    // Reusable locals for navigation
-    var cl  = 0;
-    var cc  = 0;
-    var tl  = 0;
-    var ps  = 0;
-    var cs  = 0;
-    var ns  = 0;
-    var es  = 0;
-    var mc  = 0;
-    var ch  = 0;
+    if(key == 105) { if(cursor > 0) { cursor = cursor - 1; } }          // Left
+    if(key == 106) { if(cursor < len(content)) { cursor = cursor + 1; } } // Right
+    if(key == 103) { move_up(); }    // Up
+    if(key == 108) { move_down(); }  // Down
 
-    // Arrow: Left
-    if(key == 105) {
-        if(cursor > 0) { cursor = cursor - 1; }
-    }
-
-    // Arrow: Right
-    if(key == 106) {
-        if(cursor < len(content)) { cursor = cursor + 1; }
-    }
-
-    // Arrow: Up
-    if(key == 103) {
-        cl = cursor_line(content, cursor);
-        if(cl > 0) {
-            cc = cursor_col(content, cursor);
-            ps = line_start(content, cl - 1);
-            cs = line_start(content, cl);
-            mc = cs - ps - 1;
-            if(mc < 0) { mc = 0; }
-            if(cc > mc) { cc = mc; }
-            cursor = ps + cc;
-        }
-    }
-
-    // Arrow: Down
-    if(key == 108) {
-        cl = cursor_line(content, cursor);
-        tl = line_count(content);
-        if(cl < tl - 1) {
-            cc = cursor_col(content, cursor);
-            ns = line_start(content, cl + 1);
-            es = line_start(content, cl + 2);
-            mc = es - ns - 1;
-            if(mc < 0) { mc = 0; }
-            if(cc > mc) { cc = mc; }
-            cursor = ns + cc;
-        }
-    }
-
-    // Backspace
-    if(key == 14) {
+    if(key == 14) {                              // Backspace
         if(cursor > 0) {
             cursor = cursor - 1;
             delete_at(content, cursor);
+            if(is_dirty == 0) { needs_redraw = 2; }
+            is_dirty = 1;
         }
     }
-
-    // Enter
-    if(key == 28) {
-        insert_at(content, cursor, 10);
-        cursor = cursor + 1;
+    if(key == 28) {                          // Enter
+        insert_at(content, cursor, 10); 
+        cursor = cursor + 1; 
+        if(is_dirty == 0) { needs_redraw = 2; }
+        is_dirty = 1;
+    } 
+    if(key == 15) {                              // Tab: 4 spaces
+        insert_at(content, cursor, 32); cursor = cursor + 1;
+        insert_at(content, cursor, 32); cursor = cursor + 1;
+        insert_at(content, cursor, 32); cursor = cursor + 1;
+        insert_at(content, cursor, 32); cursor = cursor + 1;
+        if(is_dirty == 0) { needs_redraw = 2; }
+        is_dirty = 1;
     }
 
-    // Tab: insert 4 spaces
-    if(key == 15) {
-        insert_at(content, cursor, 32); cursor = cursor + 1;
-        insert_at(content, cursor, 32); cursor = cursor + 1;
-        insert_at(content, cursor, 32); cursor = cursor + 1;
-        insert_at(content, cursor, 32); cursor = cursor + 1;
+    var ch = to_char(key, shift);
+    if(ch >= 32) { 
+        insert_at(content, cursor, ch); 
+        cursor = cursor + 1; 
+        if(is_dirty == 0) { needs_redraw = 2; }
+        is_dirty = 1;
     }
 
-    // Printable character (to_char returns 0 for special keys, <32 for control chars)
-    ch = to_char(key, shift);
-    if(ch >= 32) {
-        insert_at(content, cursor, ch);
-        cursor = cursor + 1;
-    }
-
-    // Clamp scroll so cursor line stays visible
-    cl = cursor_line(content, cursor);
-    if(cl < scroll) { scroll = cl; }
-    if(cl >= scroll + VIS) { scroll = cl - VIS + 1; }
+    clamp_scroll();
 }
 
 fn on_keyup() {
@@ -142,18 +144,19 @@ fn on_keyup() {
 // --- Mouse click: position cursor ---
 fn on_mousedown() {
     cursor = xy_to_cursor(content, mouse_rx, mouse_ry, TB_X, TB_Y, 8, 10, TB_W, scroll);
-    // Clamp scroll after click
-    var cl = cursor_line(content, cursor);
-    if(cl < scroll) { scroll = cl; }
-    if(cl >= scroll + VIS) { scroll = cl - VIS + 1; }
+    clamp_scroll();
 }
 
 // --- Layout ---
-layout(onFrame: on_frame, onKeyDown: on_keydown, onKeyUp: on_keyup, onMouseDown: on_mousedown) {
+layout(onFrame: on_frame, onKeyDown: on_keydown, onKeyUp: on_keyup, onMouseDown: on_mousedown, onMouseWheel: on_mouse_wheel) {
     // Header bar
     rect(x: 0, y: 0, width: 640, height: 28, color: 0xFF2D2D2D);
     text(content: arg1, x: 10, y: 8, color: 0xFFAAAAAA);
-    button(label: "SAVE", x: 580, y: 4, onClick: do_save);
+    
+    // Save button (changes color if dirty)
+    var btn_color = 0xFFCCCCCC;
+    if(is_dirty == 1) { btn_color = 0xFF00FF00; }
+    button(label: "SAVE", x: 580, y: 4, color: btn_color, onClick: do_save);
 
     // Text editing area
     textbox(content: content, cursor: cursor,

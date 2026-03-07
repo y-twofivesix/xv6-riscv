@@ -128,7 +128,7 @@ static struct sulu_node* parse_ui_element(struct parser *p) {
     // Optional block for nesting: vbox { ... }
     if (match(p, TOKEN_LBRACE)) {
         while (p->curr.type != TOKEN_RBRACE && p->curr.type != TOKEN_EOF) {
-            struct sulu_node *child = parse_ui_element(p);
+            struct sulu_node *child = parse_statement(p);
             if (child) {
                 add_child(n, child);
                 match(p, TOKEN_SEMICOLON); // UI elements might have optional semicolons
@@ -161,7 +161,7 @@ static struct sulu_node* parse_layout(struct parser *p) {
             while (p->curr.type == TOKEN_SEMICOLON) advance(p);
             if (p->curr.type == TOKEN_RBRACE) break;
             
-            struct sulu_node *child = parse_ui_element(p);
+            struct sulu_node *child = parse_statement(p);
             if (child) add_child(n, child);
             else {
                 advance(p); // Skip unknown token to avoid infinite loop
