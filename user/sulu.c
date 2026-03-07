@@ -135,18 +135,18 @@ typedef struct {
 
 struct AppEntry {
     char *name;
-    char *bin;
+    char *argv[8];
 };
 
 struct AppEntry app_list[] = {
-    {"Terminal", "terminal"},
-    {"Editor", "editor_c"},
-    {"Files", "fileman"},
-    {"Snake", "snake_c"},
-    {"Mines", "minesweeper"},
-    {"Browser", "browser"},
-    {"Procs", "procs"},
-    {"Shutdown", "shutdown"}
+    {"Terminal", {"terminal", 0}},
+    {"Editor",   {"sulula", "/bin/editor.sul", 0}},
+    {"Files",    {"fileman", 0}},
+    {"Snake",    {"sulula", "/bin/snake.sul", 0}},
+    {"Mines",    {"minesweeper", 0}},
+    {"Browser",  {"browser", 0}},
+    {"Procs",    {"procs", 0}},
+    {"Shutdown", {"shutdown", 0}}
 };
 int app_count = 8;
 int menu_visible = 0;
@@ -1511,9 +1511,8 @@ main(int argc, char *argv[])
                                             if(fork() == 0) {
                                                 char path[64];
                                                 strcpy(path, "/bin/");
-                                                strcat(path, app_list[idx].bin);
-                                                char *argv_app[] = { app_list[idx].bin, 0 };
-                                                exec(path, argv_app);
+                                                strcat(path, app_list[idx].argv[0]);
+                                                exec(path, app_list[idx].argv);
                                                 exit(0);
                                             }
                                             menu_visible = 0;
