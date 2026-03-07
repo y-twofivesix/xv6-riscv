@@ -1,0 +1,24 @@
+window {
+    title: "Array Test",
+    bg: 0xFF000000,
+    width: 400,
+    height: 400
+}
+
+var i = 0;
+fn init() {
+    clear_arr(my_arr);
+    push(my_arr, 10);
+    push(my_arr, 20);
+    push(my_arr, 30);
+    push(my_arr, 40);
+}
+
+layout(onFrame: init) {
+    vbox(padding: 20, gap: 10) {
+        for(i = 0; i < len(my_arr); i = i + 1) {
+            rect(width: 100, height: 20, color: 0xFF00FF00);
+            text(content: "Val is here");
+        }
+    }
+}

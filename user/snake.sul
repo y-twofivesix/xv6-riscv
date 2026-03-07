@@ -1,0 +1,97 @@
+window {
+    title: "Sulu Snake",
+    bg: 0xFF111111,
+    width: 400,
+    height: 400
+}
+
+var headX = 200;
+var headY = 200;
+var dir = 1; 
+var foodX = 100;
+var foodY = 100;
+var i = 0;
+var tick = 0;
+var gameOver = 0;
+var initialized = 0;
+var bodyX = 0;
+var bodyY = 0;
+
+fn update() {
+    if(initialized == 0) {
+        push(bodyX, 200);
+        push(bodyY, 200);
+        push(bodyX, 180);
+        push(bodyY, 200);
+        initialized = 1;
+    }
+
+    if(gameOver == 1) { return 0; }
+    
+    tick = tick + 1;
+    if(tick < 10) { return 0; }
+    tick = 0;
+
+    // Move body
+    for(i = len(bodyX) - 1; i > 0; i = i - 1) {
+        update_at(bodyX, i, at(bodyX, i - 1));
+        update_at(bodyY, i, at(bodyY, i - 1));
+    }
+    
+    // Move head
+    if(dir == 0) { headY = headY - 20; }
+    if(dir == 1) { headX = headX + 20; }
+    if(dir == 2) { headY = headY + 20; }
+    if(dir == 3) { headX = headX - 20; }
+    
+    // Self-collision check
+    for(i = 1; i < len(bodyX); i = i + 1) {
+        if(headX == at(bodyX, i)) {
+            if(headY == at(bodyY, i)) {
+                gameOver = 1;
+            }
+        }
+    }
+    
+    // Bounds check
+    if(headX < 0) { gameOver = 1; }
+    if(headX > 380) { gameOver = 1; }
+    if(headY < 0) { gameOver = 1; }
+    if(headY > 380) { gameOver = 1; }
+
+    update_at(bodyX, 0, headX);
+    update_at(bodyY, 0, headY);
+
+    // Food collision
+    if(headX == foodX) {
+        if(headY == foodY) {
+            print("sulu: COLLISION! head=", headX, ",", headY);
+            foodX = (rand() % 19) * 20;
+            foodY = (rand() % 19) * 20;
+            print("sulu: NEW FOOD AT ", foodX, ",", foodY);
+            push(bodyX, headX);
+            push(bodyY, headY);
+        }
+    }
+}
+
+fn on_key() {
+    if(key == 103) { dir = 0; } // Up
+    if(key == 106) { dir = 1; } // Right
+    if(key == 108) { dir = 2; } // Down
+    if(key == 105) { dir = 3; } // Left
+}
+
+layout(onFrame: update, onKeyDown: on_key) {
+    // Food
+    rect(x: foodX, y: foodY, width: 20, height: 20, color: 0xFFFF0000);
+    
+    // Snake
+    for(i = 0; i < len(bodyX); i = i + 1) {
+        rect(x: at(bodyX, i), y: at(bodyY, i), width: 18, height: 18, color: 0xFF00FF00);
+    }
+    
+    if(gameOver == 1) {
+        text(content: "GAME OVER", x: 150, y: 180, color: 0xFFFF0000);
+    }
+}

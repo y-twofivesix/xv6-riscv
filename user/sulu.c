@@ -144,10 +144,11 @@ struct AppEntry app_list[] = {
     {"Files", "fileman"},
     {"Snake", "snake"},
     {"Mines", "minesweeper"},
+    {"Browser", "browser"},
     {"Procs", "procs"},
     {"Shutdown", "shutdown"}
 };
-int app_count = 7;
+int app_count = 8;
 int menu_visible = 0;
 int menu_hover_idx = -1;
 
@@ -1479,7 +1480,7 @@ main(int argc, char *argv[])
                                   .x = mouse_x,
                                   .y = mouse_y,
                                   .rx = mouse_x - focus_win->x,
-                                  .ry = mouse_y - focus_win->y
+                                  .ry = mouse_y - (focus_win->y + TITLE_BAR_HEIGHT)
                               };
                               sulu_event_push(focus_win->shm, &sev);
                           }
@@ -1770,7 +1771,7 @@ main(int argc, char *argv[])
                                         .x = mouse_x, 
                                         .y = mouse_y,
                                         .rx = mouse_x - hit->x,
-                                        .ry = mouse_y - hit->y
+                                        .ry = mouse_y - (hit->y + TITLE_BAR_HEIGHT)
                                     };
                                       
                                       // Double Click Check
@@ -1806,7 +1807,7 @@ main(int argc, char *argv[])
                                 .x = mouse_x, 
                                 .y = mouse_y,
                                 .rx = mouse_x - focus_win->x,
-                                .ry = mouse_y - focus_win->y
+                                .ry = mouse_y - (focus_win->y + TITLE_BAR_HEIGHT)
                               };
                               sulu_event_push(focus_win->shm, &sev);
                           }
@@ -1823,7 +1824,7 @@ main(int argc, char *argv[])
                               .x = mouse_x,
                               .y = mouse_y,
                               .rx = mouse_x - focus_win->x,
-                              .ry = mouse_y - focus_win->y
+                              .ry = mouse_y - (focus_win->y + TITLE_BAR_HEIGHT)
                           };
                           sulu_event_push(focus_win->shm, &sev);
                       }
@@ -1851,7 +1852,7 @@ main(int argc, char *argv[])
                                .x = mouse_x,
                                .y = mouse_y,
                                .rx = mouse_x - focus_win->x,
-                               .ry = mouse_y - focus_win->y
+                               .ry = mouse_y - (focus_win->y + TITLE_BAR_HEIGHT)
                            };
                            sulu_event_push(focus_win->shm, &sev);
                        }
@@ -1866,7 +1867,7 @@ main(int argc, char *argv[])
                                .x = mouse_x,
                                .y = mouse_y,
                                .rx = mouse_x - focus_win->x,
-                               .ry = mouse_y - focus_win->y
+                               .ry = mouse_y - (focus_win->y + TITLE_BAR_HEIGHT)
                            };
                            sulu_event_push(focus_win->shm, &sev);
                        }

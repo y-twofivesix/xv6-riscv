@@ -1,0 +1,35 @@
+// SuluScript Test File
+window {
+    title: "Sulu Boundary Test",
+    bg: 0xFF123456,
+    width: 600,
+    height: 400
+}
+
+fn top_left() { return 1; }
+fn top_right() { return 2; }
+fn bottom_left() { return 3; }
+fn bottom_right() { return 4; }
+fn center_click() { return 5; }
+
+layout {
+    vbox(padding: 20, gap: 100) {
+        // TOP ROW
+        hbox(padding: 0, gap: 480) {
+            button(label: "TL", onClick: top_left);
+            button(label: "TR", onClick: top_right);
+        }
+        
+        // CENTER ROW (Manual horizontal offsetting using hbox gap)
+        hbox(padding: 0, gap: 0) {
+            rect(width: 250, height: 1, color: 0x00000000); // Invisible spacer
+            button(label: "CENTER", onClick: center_click);
+        }
+        
+        // BOTTOM ROW
+        hbox(padding: 0, gap: 480) {
+            button(label: "BL", onClick: bottom_left);
+            button(label: "BR", onClick: bottom_right);
+        }
+    }
+}

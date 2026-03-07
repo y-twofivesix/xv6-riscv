@@ -1,0 +1,22 @@
+window {
+    title: "Sulu Key Test",
+    bg: 0xFF111111,
+    width: 600,
+    height: 600
+}
+
+var x = 300;
+var y = 300;
+
+fn on_input() {
+    // Left: 105, Right: 106, Up: 103, Down: 108
+    if(key == 105) { x = x - 10; }
+    if(key == 106) { x = x + 10; }
+    if(key == 103) { y = y - 10; }
+    if(key == 108) { y = y + 10; }
+}
+
+layout(onKeyDown: on_input) {
+    rect(x: x, y: y, width: 40, height: 40, color: 0xFF00FF00);
+    text(content: "Use arrow keys to move", x: 10, y: 10);
+}

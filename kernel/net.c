@@ -141,8 +141,6 @@ net_handle_ip(uint8 *pkt, int len)
     } else if(ip->proto == IP_PROTO_UDP) {
         net_handle_udp(pkt, ntohs(ip->len));
     } else if(ip->proto == IP_PROTO_TCP) {
-        printf("net: TCP packet from %d.%d.%d.%d\n",
-               ip->src[0], ip->src[1], ip->src[2], ip->src[3]);
         net_handle_tcp(pkt, ntohs(ip->len));
     }
 }
@@ -627,12 +625,7 @@ net_send_tcp(uint8 *dst_ip, uint16 sport, uint16 dport,
     // TCP checksum
     tcp->csum = tcp_checksum(my_ip, dst_ip, tcp, tcp_len);
     
-    printf("tcp: sending %d bytes (ip_len=%d, csum=%x)\n", 
-           total_len, ip_len, ntohs(tcp->csum));
-    
-    int ret = net_send(pkt, total_len);
-    printf("tcp: net_send returned %d\n", ret);
-    return ret;
+    return net_send(pkt, total_len);
 }
 
 // Handle incoming TCP packet
@@ -656,14 +649,9 @@ net_handle_tcp(uint8 *pkt, int iplen)
     
     acquire(&tcp_lock);
     
-    printf("tcp: IN from %d.%d.%d.%d:%d -> port %d flags=%x seq=%d ack=%d\n",
-           ip->src[0], ip->src[1], ip->src[2], ip->src[3],
-           sport, dport, flags, seq, ack);
-    
     // Find connection
     struct tcp_conn *conn = tcp_find_conn(ip->src, sport, dport);
     if(!conn) {
-        printf("tcp: no matching connection\n");
         release(&tcp_lock);
         return;  // No connection for this packet
     }
@@ -795,9 +783,6 @@ tcp_connect(int fd, uint8 *ip, uint16 port)
     conn->state = TCP_SYN_SENT;
     
     release(&tcp_lock);
-    
-    printf("tcp: sending SYN to %d.%d.%d.%d:%d (lport=%d)\n",
-           ip[0], ip[1], ip[2], ip[3], port, conn->lport);
     
     // Send SYN
     int ret = net_send_tcp(ip, conn->lport, port, 

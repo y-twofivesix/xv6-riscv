@@ -77,9 +77,12 @@ int procinfo(struct procinfo*, int);
 // ulib.c
 // int stat(const char*, struct stat*); // Moved to syscalls
 char* strcpy(char*, const char*);
+char* strncpy(char*, const char*, int);
 void *memmove(void*, const void*, int);
 char* strchr(const char*, char c);
 int strcmp(const char*, const char*);
+int strncmp(const char*, const char*, uint);
+char* strstr(const char*, const char*);
 void strcat(char *, const char *);
 int strtok(const char *, char *, char, int);
 #include <stdarg.h>

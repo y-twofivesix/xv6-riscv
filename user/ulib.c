@@ -42,12 +42,47 @@ strcpy(char *s, const char *t)
   return os;
 }
 
+char*
+strncpy(char *s, const char *t, int n)
+{
+  char *os;
+
+  os = s;
+  while(n-- > 0 && (*s++ = *t++) != 0)
+    ;
+  while(n-- > 0)
+    *s++ = 0;
+  return os;
+}
+
 int
 strcmp(const char *p, const char *q)
 {
   while(*p && *p == *q)
     p++, q++;
   return (uchar)*p - (uchar)*q;
+}
+
+int
+strncmp(const char *p, const char *q, uint n)
+{
+  while(n > 0 && *p && *p == *q)
+    n--, p++, q++;
+  if(n == 0)
+    return 0;
+  return (uchar)*p - (uchar)*q;
+}
+
+char*
+strstr(const char *s, const char *t)
+{
+  int n = strlen(t);
+  while(*s){
+    if(strncmp(s, t, n) == 0)
+      return (char*)s;
+    s++;
+  }
+  return 0;
 }
 
 void strcat(char *s1, const char *s2) {

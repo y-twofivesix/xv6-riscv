@@ -1,0 +1,25 @@
+window {
+    title: "Sulu Bouncing Ball",
+    bg: 0xFF000000,
+    width: 400,
+    height: 400
+}
+
+var ball_x = 100;
+var ball_y = 100;
+var dx = 4;
+var dy = 5;
+
+fn update() {
+    ball_x = ball_x + dx;
+    ball_y = ball_y + dy;
+    
+    if(ball_x > 380) { dx = 0 - 4; }
+    if(ball_x < 0) { dx = 4; }
+    if(ball_y > 380) { dy = 0 - 5; }
+    if(ball_y < 0) { dy = 5; }
+}
+
+layout(onFrame: update) {
+    rect(x: ball_x, y: ball_y, width: 20, height: 20, color: 0xFFFF0000);
+}

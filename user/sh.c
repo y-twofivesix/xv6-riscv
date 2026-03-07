@@ -202,14 +202,6 @@ add_history(char *cmd)
 }
 
 // Helper for tab completion
-int strncmp(const char *p, const char *q, uint n)
-{
-  while(n > 0 && *p && *p == *q)
-    n--, p++, q++;
-  if(n == 0)
-    return 0;
-  return (uchar)*p - (uchar)*q;
-}
 
 void attempt_completion(char *buf, int *n, int *pos, int max_buf)
 {

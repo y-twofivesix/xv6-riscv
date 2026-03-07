@@ -165,11 +165,24 @@ UPROGS=\
 	$U/_ping\
 	$U/_nc\
 	$U/_nslookup\
-	$U/_wget
+	$U/_wget\
+	$U/_browser\
+	$U/_sulutest\
+	$U/_sulu_run
+
+$U/_sulu_run: $U/sulu_interpreter.o $U/suluscript_lexer.o $U/suluscript_parser.o $(ULIB)
+	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
+	$(OBJDUMP) -S $@ > $U/sulu_run.asm
+	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/sulu_run.sym
+
+$U/_sulutest: $U/sulutest.o $U/suluscript_lexer.o $U/suluscript_parser.o $(ULIB)
+	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
+	$(OBJDUMP) -S $@ > $U/sulutest.asm
+	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/sulutest.sym
 
 .PHONY: fs.img
-fs.img: mkfs/mkfs README INFO $(UPROGS) user/test_image.bmp
-	mkfs/mkfs fs.img README INFO $(UPROGS) user/test_image.bmp
+fs.img: mkfs/mkfs README INFO $(UPROGS) user/test_image.bmp user/test.sul user/ball.sul user/key_test.sul user/arrays.sul user/snake.sul
+	mkfs/mkfs fs.img README INFO $(UPROGS) user/test_image.bmp user/test.sul user/ball.sul user/key_test.sul user/arrays.sul user/snake.sul
 
 -include kernel/*.d user/*.d
 
@@ -191,10 +204,10 @@ QEMUOPTS = -machine virt -bios none -kernel $K/kernel.elf -m 128M -smp $(CPUS) -
 QEMUOPTS += -global virtio-mmio.force-legacy=false
 QEMUOPTS += -drive file=fs.img,if=none,format=raw,id=x0
 QEMUOPTS += -device virtio-blk-device,drive=x0,bus=virtio-mmio-bus.0
+QEMUOPTS += -netdev user,id=net0,hostfwd=udp::5000-:5000 -device virtio-net-device,netdev=net0,bus=virtio-mmio-bus.4
 
 QEMUGUIOPTS = $(subst -nographic,,$(QEMUOPTS))
 QEMUGUIOPTS += -vga none -device virtio-gpu-device -device virtio-tablet-device -device virtio-keyboard-device -serial stdio
-QEMUGUIOPTS += -netdev user,id=net0,hostfwd=udp::5000-:5000 -device virtio-net-device,netdev=net0
 
 qemu-gui: $K/kernel.elf fs.img
 	$(QEMU) $(QEMUGUIOPTS)
