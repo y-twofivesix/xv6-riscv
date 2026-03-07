@@ -104,7 +104,7 @@ The following variables are automatically populated by the system during event c
 *   `key`: The scancode of the key being pressed/released.
 *   `key_val`: `1` for key down, `0` for key up.
 *   `windowW` / `windowH`: Current window dimensions in pixels.
-*   `arg1` / `arg2`: Command-line arguments passed to `sulu_run`.
+*   `arg1` / `arg2`: Command-line arguments passed to `sulula`.
 *   `mouse_rx` / `mouse_ry`: Window-relative mouse coordinates, set before `onMouseDown` fires.
 
 ## 5. Key Scancodes (common)

@@ -17,7 +17,7 @@ var gameOver = 0;
 var initialized = 0;
 var bodyX = 0;
 var bodyY = 0;
-var needs_redraw = 0;
+hook needs_redraw = 0;
 
 fn update() {
     needs_redraw = 2;
@@ -110,7 +110,7 @@ layout(onFrame: update, onKeyDown: on_key, onResize: handle_resize) {
     
     if(gameOver == 1) {
         text(content: "GAME OVER", x: windowW / 2 - 40, y: windowH / 2 - 10, color: 0xFFFF0000);
-        button(label: "restart", onClick: restart, x: 200 - 40, y: 200 + 10);
+        button(label: "restart", onClick: restart, x: windowW / 2 - 40, y: windowH / 2 + 10);
     }
 }
 

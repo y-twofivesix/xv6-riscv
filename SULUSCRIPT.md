@@ -94,7 +94,7 @@ make
 
 To run an app:
 ```bash
-sulu_run my_app.sul
+sulula my_app.sul
 ```
 
 To test the parser output:

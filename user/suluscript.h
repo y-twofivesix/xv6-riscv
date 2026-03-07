@@ -20,6 +20,7 @@ typedef enum {
     TOKEN_IF,
     TOKEN_ELSE,
     TOKEN_RETURN,
+    TOKEN_HOOK,
     
     // UI Elements
     TOKEN_VBOX,
@@ -75,6 +76,7 @@ typedef enum {
     NODE_LAYOUT_DEF,
     NODE_VAR_DEF,
     NODE_FN_DEF,
+    NODE_HOOK_DEF,
     
     // UI Nodes
     NODE_VBOX,

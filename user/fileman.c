@@ -253,8 +253,8 @@ void launch(char *name) {
                     exec("viewer", argv);
                     printf("fileman: failed to launch viewer for %s\n", path);
                 } else if(len > 4 && strcmp(path + len - 4, ".sul") == 0) {
-                    char *argv[] = {"sulu_run", "editor.sul", path, 0};
-                    exec("sulu_run", argv);
+                    char *argv[] = {"sulula", "editor.sul", path, 0};
+                    exec("sulula", argv);
                     printf("fileman: failed to launch editor.sul for %s\n", path);
                 } else {
                     // Fallback to editor for non-executable files

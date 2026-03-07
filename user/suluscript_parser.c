@@ -206,6 +206,22 @@ static struct sulu_node* parse_var(struct parser *p) {
     return n;
 }
 
+static struct sulu_node* parse_hook(struct parser *p) {
+    if (!match(p, TOKEN_HOOK)) return 0;
+    struct sulu_node *n = alloc_node(NODE_HOOK_DEF);
+    if (p->curr.type == TOKEN_IDENT) {
+        n->ident = malloc(p->curr.len + 1);
+        memmove(n->ident, p->curr.start, p->curr.len);
+        n->ident[p->curr.len] = 0;
+        advance(p);
+        if (match(p, TOKEN_EQUAL)) {
+            n->expr_left = parse_expression(p);
+        }
+        match(p, TOKEN_SEMICOLON);
+    }
+    return n;
+}
+
 static struct sulu_node* parse_fn(struct parser *p) {
     if (!match(p, TOKEN_FN)) return 0;
     struct sulu_node *n = alloc_node(NODE_FN_DEF);
@@ -321,6 +337,7 @@ static struct sulu_node* parse_if(struct parser *p) {
 static struct sulu_node* parse_statement(struct parser *p) {
     while (match(p, TOKEN_SEMICOLON)); // Skip empty statements
     if (p->curr.type == TOKEN_VAR) return parse_var(p);
+    if (p->curr.type == TOKEN_HOOK) return parse_hook(p);
     if (p->curr.type == TOKEN_IF) return parse_if(p);
     if (p->curr.type == TOKEN_FOR) return parse_for(p);
     
@@ -436,6 +453,7 @@ struct sulu_node* suluscript_parse(char *source) {
         struct sulu_node *node = 0;
         if (p.curr.type == TOKEN_WINDOW) node = parse_window(&p);
         else if (p.curr.type == TOKEN_VAR) node = parse_var(&p);
+        else if (p.curr.type == TOKEN_HOOK) node = parse_hook(&p);
         else if (p.curr.type == TOKEN_FN) node = parse_fn(&p);
         else if (p.curr.type == TOKEN_LAYOUT) node = parse_layout(&p);
         else advance(&p); // Error or unknown top-level

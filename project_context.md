@@ -228,7 +228,7 @@ struct sulu_window_shm {
 - **Launch logic** (extension-based dispatch):
   - ELF magic (`\x7fELF`): Execute directly.
   - `.bmp`: Open in `viewer`.
-  - `.sul`: Open with `sulu_run editor.sul <path>`.
+  - `.sul`: Open with `sulula editor.sul <path>`.
   - Other: Open in `editor`.
 - `sys_stat` used for probing device files safely (no open/close).
 - **Scrolling**: Mouse wheel supported.
@@ -277,7 +277,7 @@ struct sulu_window_shm {
 
 ### 4.1 Overview
 **SuluScript** (`.sul` files) is a custom interpreted language built entirely from scratch for rapid GUI development in xv6. It replaces the need to write C code for simple apps and games.
-- **Interpreter**: `user/sulu_interpreter.c` (the `sulu_run` binary).
+- **Interpreter**: `user/sulu_interpreter.c` (the `sulula` binary).
 - **Lexer**: `user/suluscript_lexer.c`
 - **Parser**: `user/suluscript_parser.c`
 - **Header**: `user/suluscript.h` (AST node types, token types)
@@ -285,7 +285,7 @@ struct sulu_window_shm {
 ### 4.2 Language Syntax
 
 ```javascript
-#!/bin/sulu_run        // Shebang for direct execution
+#!/bin/sulula        // Shebang for direct execution
 window {
     title: "My App",
     width: 400, height: 400,
@@ -391,7 +391,7 @@ layout(onFrame: update, onKeyDown: on_key, onKeyUp: on_keyup, onResize: handle_r
 - Bounds check uses `windowW`/`windowH` so the game expands when window is resized.
 - Speed controlled by tick counter (`tick < 10` = skip frame = ~6-8 moves/sec at 60fps).
 - `onResize: handle_resize` registered in layout.
-- Shebang: `#!/bin/sulu_run` so you can run `snake.sul` directly.
+- Shebang: `#!/bin/sulula` so you can run `snake.sul` directly.
 
 **`user/editor.sul`** — Text editor in SuluScript (WIP):
 - Reads a file into a character array using `read_file(arg1, content)`.
@@ -415,7 +415,7 @@ Modified `runcmd()` EXEC case to:
 This means `snake.sul` can be run as: `snake.sul` (if in PATH) or `./snake.sul`.
 
 ### 5.2 File Manager `.sul` Dispatch
-In `fileman.c` `launch()`: if filename ends with `.sul`, executes `sulu_run editor.sul <path>` via `exec`.
+In `fileman.c` `launch()`: if filename ends with `.sul`, executes `sulula editor.sul <path>` via `exec`.
 
 ---
 
@@ -424,7 +424,7 @@ In `fileman.c` `launch()`: if filename ends with `.sul`, executes `sulu_run edit
 ### 6.1 Makefile Highlights
 - QEMU target: `make qemu-gui` launches with VirtIO GPU, keyboard, tablet, serial stdio.
 - GPU driver is compiled in via `kernel/virtio_gpu.c`.
-- `sulu_run` binary links: `sulu_interpreter.o` + `suluscript_lexer.o` + `suluscript_parser.o` + ulib.
+- `sulula` binary links: `sulu_interpreter.o` + `suluscript_lexer.o` + `suluscript_parser.o` + ulib.
 - `fs.img` target includes all `.sul` script files explicitly: `test.sul ball.sul key_test.sul arrays.sul snake.sul editor.sul`.
 - All userspace programs go in `UPROGS`.
 
@@ -462,6 +462,6 @@ In `fileman.c` `launch()`: if filename ends with `.sul`, executes `sulu_run edit
 
 ### Next Steps
 1. Fix `make fs.img` build error (diagnose compiler/linker error from recent interpreter changes).
-2. Test `editor.sul` with `sulu_run editor.sul snake.sul`.
+2. Test `editor.sul` with `sulula editor.sul snake.sul`.
 3. Verify `text(content: arr)` renders the char array correctly.
 4. Fix the `val_ident` vs `val_expr` distinction for the `content` property in the text node parser.

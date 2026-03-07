@@ -60,6 +60,7 @@ static token_type_t check_keyword(char *start, int len) {
     if (strncmp(start, "else", len) == 0 && len == 4) return TOKEN_ELSE;
     if (strncmp(start, "return", len) == 0 && len == 6) return TOKEN_RETURN;
     if (strncmp(start, "for", len) == 0 && len == 3) return TOKEN_FOR;
+    if (strncmp(start, "hook", len) == 0 && len == 4) return TOKEN_HOOK;
     
     // UI Elements
     if (strncmp(start, "vbox", len) == 0 && len == 4) return TOKEN_VBOX;

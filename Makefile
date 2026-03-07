@@ -181,8 +181,8 @@ $U/_sulutest: $U/sulutest.o $U/suluscript_lexer.o $U/suluscript_parser.o $(ULIB)
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/sulutest.sym
 
 .PHONY: fs.img
-fs.img: mkfs/mkfs README INFO $(UPROGS) user/test_image.bmp user/test.sul user/ball user/key_test.sul user/arrays.sul user/snake user/editor
-	mkfs/mkfs fs.img README INFO $(UPROGS) user/test_image.bmp user/test.sul user/ball user/key_test.sul user/arrays.sul user/snake user/editor
+fs.img: mkfs/mkfs README INFO $(UPROGS) user/test_image.bmp user/test.sul user/ball.sul user/key_test.sul user/arrays.sul user/snake.sul user/editor.sul
+	mkfs/mkfs fs.img README INFO $(UPROGS) user/test_image.bmp user/test.sul user/ball.sul user/key_test.sul user/arrays.sul user/snake.sul user/editor.sul
 
 -include kernel/*.d user/*.d
 

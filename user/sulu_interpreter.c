@@ -635,7 +635,8 @@ void exec_node(struct sulu_node *n) {
     // printf("sulu: exec_node type=%d ident=%s\n", n->type, n->ident ? n->ident : "NULL");
     
     switch(n->type) {
-        case NODE_VAR_DEF: {
+        case NODE_VAR_DEF:
+        case NODE_HOOK_DEF: {
             int val = eval_expr(n->expr_left);
             set_local(n->ident, val);  // creates local in current frame, or global at top level
             break;

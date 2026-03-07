@@ -140,9 +140,9 @@ struct AppEntry {
 
 struct AppEntry app_list[] = {
     {"Terminal", "terminal"},
-    {"Editor", "editor"},
+    {"Editor", "editor_c"},
     {"Files", "fileman"},
-    {"Snake", "snake"},
+    {"Snake", "snake_c"},
     {"Mines", "minesweeper"},
     {"Browser", "browser"},
     {"Procs", "procs"},
