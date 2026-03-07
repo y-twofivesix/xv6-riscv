@@ -1,4 +1,4 @@
-#!/bin/sulu_run
+#!/bin/sulula
 window {
     title: "Editor",
     width: 640,
@@ -16,6 +16,10 @@ var initialized = 0;
 var needs_redraw = 0;
 var is_dirty = 0;
 
+var sel_start = 0;
+var sel_end   = 0;
+var is_selecting = 0;
+
 // Textbox layout constants (must match textbox element below)
 var TB_X  = 0;
 var TB_Y  = 28;
@@ -28,6 +32,8 @@ fn on_frame() {
     if(initialized == 0) {
         read_file(arg1, content);
         cursor = len(content);
+        sel_start = cursor;
+        sel_end = cursor;
         initialized = 1;
         needs_redraw = 2;
     }
@@ -40,6 +46,38 @@ fn do_save() {
     needs_redraw = 2; // Redraw to update button color
 }
 
+fn do_copy() {
+    if(sel_start != sel_end) {
+        clip_copy_range(content, sel_start, sel_end);
+    }
+}
+
+fn do_paste() {
+    clip_request();
+}
+
+fn on_paste_ready() {
+    if(sel_start != sel_end) {
+        var s = sel_start;
+        var e = sel_end;
+        if(s > e) { var t = s; s = e; e = t; }
+        delete_range(content, s, e);
+        cursor = s;
+        sel_start = cursor;
+        sel_end = cursor;
+    }
+    var l = clip_len();
+    if(l > 0) {
+        clip_paste_to(content, cursor);
+        cursor = cursor + l;
+        sel_start = cursor;
+        sel_end = cursor;
+        is_dirty = 1;
+        needs_redraw = 2;
+    }
+    clamp_scroll();
+}
+
 fn clamp_scroll() {
     var cl = cursor_line(content, cursor);
     if(cl < scroll) { scroll = cl; }
@@ -47,11 +85,7 @@ fn clamp_scroll() {
 }
 
 fn on_mouse_wheel() {
-    // mouse_wheel is +1 for up, -1 for down (standard)
-    // We want to scroll up (decrement scroll) or down (increment scroll)
     scroll = scroll - mouse_wheel; 
-    
-    // Clamp scroll
     if(scroll < 0) { scroll = 0; }
     var total_lines = line_count(content);
     if(scroll >= total_lines) { scroll = total_lines - 1; }
@@ -92,7 +126,9 @@ fn on_keydown() {
     if(key == 29) { ctrl  = 1; return 0; }   // LCtrl
 
     if(ctrl == 1) {
-        if(key == 31) { do_save(); }           // Ctrl+S
+        if(key == 31) { do_save(); return 0; }      // Ctrl+S
+        if(key == 46) { do_copy(); return 0; }      // Ctrl+C
+        if(key == 47) { do_paste(); return 0; }     // Ctrl+V
         return 0;
     }
 
@@ -101,13 +137,32 @@ fn on_keydown() {
     if(key == 103) { move_up(); }    // Up
     if(key == 108) { move_down(); }  // Down
 
+    // Clear selection if we type or move without shift (shift support not yet added for arrows)
+    if(key != 42) { 
+        if(key != 54) {
+            sel_start = cursor;
+            sel_end = cursor;
+        }
+    }
+
     if(key == 14) {                              // Backspace
-        if(cursor > 0) {
+        if(sel_start != sel_end) {
+            var s = sel_start;
+            var e = sel_end;
+            if(s > e) { var t = s; s = e; e = t; }
+            delete_range(content, s, e);
+            cursor = s;
+            sel_start = cursor;
+            sel_end = cursor;
+            is_dirty = 1;
+            needs_redraw = 2;
+        } else if(cursor > 0) {
             cursor = cursor - 1;
             delete_at(content, cursor);
             if(is_dirty == 0) { needs_redraw = 2; }
             is_dirty = 1;
         }
+        clamp_scroll();
     }
     if(key == 28) {                          // Enter
         insert_at(content, cursor, 10); 
@@ -132,6 +187,8 @@ fn on_keydown() {
         is_dirty = 1;
     }
 
+    sel_start = cursor;
+    sel_end = cursor;
     clamp_scroll();
 }
 
@@ -141,25 +198,51 @@ fn on_keyup() {
     if(key == 29) { ctrl  = 0; }
 }
 
-// --- Mouse click: position cursor ---
+// --- Mouse Events ---
 fn on_mousedown() {
     cursor = xy_to_cursor(content, mouse_rx, mouse_ry, TB_X, TB_Y, 8, 10, TB_W, scroll);
+    sel_start = cursor;
+    sel_end = cursor;
+    is_selecting = 1;
+    needs_redraw = 1;
     clamp_scroll();
 }
 
+fn on_mousemove() {
+    if(is_selecting == 1) {
+        var old_end = sel_end;
+        sel_end = xy_to_cursor(content, mouse_rx, mouse_ry, TB_X, TB_Y, 8, 10, TB_W, scroll);
+        if(sel_end != old_end) {
+            cursor = sel_end;
+            needs_redraw = 1;
+            clamp_scroll();
+        }
+    }
+}
+
+fn on_mouseup() {
+    is_selecting = 0;
+    needs_redraw = 1;
+}
+
 // --- Layout ---
-layout(onFrame: on_frame, onKeyDown: on_keydown, onKeyUp: on_keyup, onMouseDown: on_mousedown, onMouseWheel: on_mouse_wheel) {
+layout(onFrame: on_frame, onKeyDown: on_keydown, onKeyUp: on_keyup, 
+       onMouseDown: on_mousedown, onMouseMove: on_mousemove, onMouseUp: on_mouseup,
+       onMouseWheel: on_mouse_wheel, onPaste: on_paste_ready) {
     // Header bar
     rect(x: 0, y: 0, width: 640, height: 28, color: 0xFF2D2D2D);
     text(content: arg1, x: 10, y: 8, color: 0xFFAAAAAA);
     
-    // Save button (changes color if dirty)
+    // Header buttons
     var btn_color = 0xFFCCCCCC;
     if(is_dirty == 1) { btn_color = 0xFF00FF00; }
-    button(label: "SAVE", x: 580, y: 4, color: btn_color, onClick: do_save);
+    
+    button(label: "SAVE",  x: 580, y: 4, width: 50, height: 20, color: btn_color, onClick: do_save);
+    button(label: "COPY",  x: 520, y: 4, width: 50, height: 20, color: 0xFFCCCCCC, onClick: do_copy);
+    button(label: "PASTE", x: 460, y: 4, width: 50, height: 20, color: 0xFFCCCCCC, onClick: do_paste);
 
     // Text editing area
-    textbox(content: content, cursor: cursor,
-            x: TB_X, y: TB_Y, width: TB_W, height: TB_H,
-            color: 0xFFCCCCCC, bg: 0xFF1E1E1E, scroll: scroll);
+    textbox(content: content, cursor: cursor, scroll: scroll,
+            sel_start: sel_start, sel_end: sel_end,
+            x: TB_X, y: TB_Y, width: TB_W, height: TB_H)
 }

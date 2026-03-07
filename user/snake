@@ -1,4 +1,4 @@
-#!/bin/sulu_run
+#!/bin/sulula
 window {
     title: "Sulu Snake",
     bg: 0xFF111111,
@@ -110,7 +110,7 @@ layout(onFrame: update, onKeyDown: on_key, onResize: handle_resize) {
     
     if(gameOver == 1) {
         text(content: "GAME OVER", x: windowW / 2 - 40, y: windowH / 2 - 10, color: 0xFFFF0000);
-        button(label: "restart", restart, x: windowW / 2 - 40, y: windowH / 2 + 10):
+        button(label: "restart", onClick: restart, x: 200 - 40, y: 200 + 10);
     }
 }
 

@@ -152,15 +152,15 @@ UPROGS=\
 	$U/_tuitest\
 	$U/_suluctl_demo\
 	$U/_shmtest\
-	$U/_bouncing_ball\
+	$U/_ball_c\
 	$U/_size_test\
 	$U/_terminal\
 	$U/_procs\
 	$U/_fileman\
-	$U/_editor\
+	$U/_editor_c\
 	$U/_viewer\
 	$U/_shutdown\
-	$U/_snake\
+	$U/_snake_c\
 	$U/_minesweeper\
 	$U/_ping\
 	$U/_nc\
@@ -168,12 +168,12 @@ UPROGS=\
 	$U/_wget\
 	$U/_browser\
 	$U/_sulutest\
-	$U/_sulu_run
+	$U/_sulula
 
-$U/_sulu_run: $U/sulu_interpreter.o $U/suluscript_lexer.o $U/suluscript_parser.o $(ULIB)
+$U/_sulula: $U/sulu_interpreter.o $U/suluscript_lexer.o $U/suluscript_parser.o $(ULIB)
 	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
-	$(OBJDUMP) -S $@ > $U/sulu_run.asm
-	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/sulu_run.sym
+	$(OBJDUMP) -S $@ > $U/sulula.asm
+	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/sulula.sym
 
 $U/_sulutest: $U/sulutest.o $U/suluscript_lexer.o $U/suluscript_parser.o $(ULIB)
 	$(LD) $(LDFLAGS) -T $U/user.ld -o $@ $^
@@ -181,8 +181,8 @@ $U/_sulutest: $U/sulutest.o $U/suluscript_lexer.o $U/suluscript_parser.o $(ULIB)
 	$(OBJDUMP) -t $@ | sed '1,/SYMBOL TABLE/d; s/ .* / /; /^$$/d' > $U/sulutest.sym
 
 .PHONY: fs.img
-fs.img: mkfs/mkfs README INFO $(UPROGS) user/test_image.bmp user/test.sul user/ball.sul user/key_test.sul user/arrays.sul user/snake.sul user/editor.sul
-	mkfs/mkfs fs.img README INFO $(UPROGS) user/test_image.bmp user/test.sul user/ball.sul user/key_test.sul user/arrays.sul user/snake.sul user/editor.sul
+fs.img: mkfs/mkfs README INFO $(UPROGS) user/test_image.bmp user/test.sul user/ball user/key_test.sul user/arrays.sul user/snake user/editor
+	mkfs/mkfs fs.img README INFO $(UPROGS) user/test_image.bmp user/test.sul user/ball user/key_test.sul user/arrays.sul user/snake user/editor
 
 -include kernel/*.d user/*.d
 

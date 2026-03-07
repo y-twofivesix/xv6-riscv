@@ -396,6 +396,80 @@ int exec_native(char *name, struct sulu_node *args) {
         }
         return v->array_len;
     }
+    if(strcmp(name, "clip_set") == 0) {
+        if(args) {
+            char *s = eval_expr_str(args);
+            if(s) {
+                strncpy(win.shm->clipboard, s, 2047);
+                win.shm->clipboard[2047] = 0;
+                win.shm->clipboard_len = strlen(s);
+                struct sulu_cmd cmd = { .type = SULU_CMD_CLIP_SET };
+                sulu_cmd_push(win.shm, &cmd);
+            }
+        }
+        return 0;
+    }
+    if(strcmp(name, "clip_copy_range") == 0) {
+        if(args && args->next && args->next->next) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            int start = eval_expr(args->next);
+            int end = eval_expr(args->next->next);
+            if(v && v->array) {
+                if(start > end) { int t = start; start = end; end = t; }
+                if(start < 0) start = 0;
+                if(end > v->array_len) end = v->array_len;
+                int len = end - start;
+                if(len > 2047) len = 2047;
+                if(len < 0) len = 0;
+                for(int i = 0; i < len; i++) win.shm->clipboard[i] = (char)v->array[start + i];
+                win.shm->clipboard[len] = 0;
+                win.shm->clipboard_len = len;
+                struct sulu_cmd cmd = { .type = SULU_CMD_CLIP_SET };
+                sulu_cmd_push(win.shm, &cmd);
+            }
+        }
+        return 0;
+    }
+    if(strcmp(name, "clip_paste_to") == 0) {
+        if(args && args->next) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            int idx = eval_expr(args->next);
+            if(v && win.shm->clipboard_len > 0) {
+                // Insert clipboard chars one by one at idx
+                for(int i = 0; i < win.shm->clipboard_len; i++) {
+                    insert_at_internal(v, idx + i, (unsigned char)win.shm->clipboard[i]);
+                }
+            }
+        }
+        return 0;
+    }
+    if(strcmp(name, "clip_request") == 0) {
+        struct sulu_cmd cmd = { .type = SULU_CMD_CLIP_GET };
+        sulu_cmd_push(win.shm, &cmd);
+        return 0;
+    }
+    if(strcmp(name, "clip_len") == 0) {
+        return win.shm->clipboard_len;
+    }
+    if(strcmp(name, "delete_range") == 0) {
+        if(args && args->next && args->next->next) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            int start = eval_expr(args->next);
+            int end = eval_expr(args->next->next);
+            if(v && v->array) {
+                if(start > end) { int t = start; start = end; end = t; }
+                if(start < 0) start = 0;
+                if(end > v->array_len) end = v->array_len;
+                int len = end - start;
+                if(len > 0) {
+                    for(int i = start; i < v->array_len - len; i++)
+                        v->array[i] = v->array[i + len];
+                    v->array_len -= len;
+                }
+            }
+        }
+        return 0;
+    }
     // Fallback: script-defined function
     struct sulu_node *fn = find_fn(name);
     if(fn) return call_fn(fn);
@@ -665,17 +739,6 @@ void layout_node(struct sulu_node *n, int x, int y, int max_w) {
     if(ry == -1) n->y = y; else n->y = ry;
     
     switch(n->type) {
-        case NODE_LAYOUT_DEF: {
-            struct sulu_node *child = n->children;
-            int h = 0;
-            while(child) {
-                layout_node(child, n->x, n->y, max_w);
-                if(child->y + child->h > h) h = child->y + child->h;
-                child = child->next;
-            }
-            n->h = h - n->y;
-            break;
-        }
         case NODE_VBOX: {
             int padding = get_prop_int(n, "padding", 0);
             int gap = get_prop_int(n, "gap", 0);
@@ -716,8 +779,8 @@ void layout_node(struct sulu_node *n, int x, int y, int max_w) {
         }
         case NODE_BUTTON: {
             char *label = get_prop_str(n, "label", "Button");
-            n->w = (strlen(label) * 8) + 20;
-            n->h = 24;
+            n->w = get_prop_int(n, "width", (strlen(label) * 8) + 20);
+            n->h = get_prop_int(n, "height", 24);
             break;
         }
         case NODE_RECT: {
@@ -730,6 +793,16 @@ void layout_node(struct sulu_node *n, int x, int y, int max_w) {
             n->h = get_prop_int(n, "height", 200);
             break;
         }
+        case NODE_PROGRAM:
+        case NODE_LAYOUT_DEF:
+        case NODE_BLOCK: {
+            struct sulu_node *child = n->children;
+            while(child) {
+                layout_node(child, n->x, n->y, max_w);
+                child = child->next;
+            }
+            break;
+        }
         case NODE_IF: {
             if(eval_expr(n->expr_left)) {
                 struct sulu_node *child = n->children;
@@ -737,14 +810,6 @@ void layout_node(struct sulu_node *n, int x, int y, int max_w) {
                     layout_node(child, n->x, n->y, max_w);
                     child = child->next;
                 }
-            }
-            break;
-        }
-        case NODE_BLOCK: {
-            struct sulu_node *child = n->children;
-            while(child) {
-                layout_node(child, n->x, n->y, max_w);
-                child = child->next;
             }
             break;
         }
@@ -760,8 +825,12 @@ void layout_node(struct sulu_node *n, int x, int y, int max_w) {
             }
             break;
         }
+        case NODE_VAR_DEF:
+        case NODE_ASSIGN:
+        case NODE_CALL:
+            exec_node(n);
+            break;
         default:
-            n->w = 0; n->h = 0;
             break;
     }
 }
@@ -808,10 +877,13 @@ static int cursor_to_line(struct sulu_var *v, int idx) {
     return line;
 }
 
+static int tb_prev_sel_start = -1;
+static int tb_prev_sel_end   = -1;
+
 // Render a single line strip (clear + draw chars on that line)
 static void render_line_strip(struct sulu_var *v, int target_line, int scroll,
         int tb_x, int tb_y, int tb_w, int tb_h,
-        int cursor_idx, uint32 text_color, uint32 bg_color) {
+        int cursor_idx, int sel_start, int sel_end, uint32 text_color, uint32 bg_color) {
     const int CHAR_W = 8, CHAR_H = 10, PAD = 4;
     int start_x = tb_x + PAD;
     int max_x   = tb_x + tb_w - PAD;
@@ -842,6 +914,15 @@ static void render_line_strip(struct sulu_var *v, int target_line, int scroll,
     // Draw characters on this line
     int lx = start_x;
     for(int i = idx; i < total; i++) {
+        // Selection highlight
+        if(sel_start != sel_end) {
+            int ss = sel_start < sel_end ? sel_start : sel_end;
+            int se = sel_start < sel_end ? sel_end : sel_start;
+            if(i >= ss && i < se) {
+                draw_local_rect(lx, sy, CHAR_W, CHAR_H, 0xFF444488);
+            }
+        }
+
         // Draw cursor at this position
         if(i == cursor_idx) {
             int cx = lx < max_x ? lx : max_x;
@@ -864,6 +945,8 @@ static void render_line_strip(struct sulu_var *v, int target_line, int scroll,
     }
 }
 
+extern int tb_full_redraw; // Declared in render_app_full
+
 void draw_textbox(struct sulu_node *n) {
     int tb_x  = get_prop_int(n, "x", n->x);
     int tb_y  = get_prop_int(n, "y", n->y);
@@ -873,6 +956,8 @@ void draw_textbox(struct sulu_node *n) {
     uint32 bg_color   = (uint32)get_prop_int(n, "bg",    0xFF1E1E1E);
     int scroll     = get_prop_int(n, "scroll", 0);
     int cursor_idx = get_prop_int(n, "cursor", -1);
+    int sel_start  = get_prop_int(n, "sel_start", -1);
+    int sel_end    = get_prop_int(n, "sel_end", -1);
 
     // Resolve content array variable
     struct sulu_var *v = 0;
@@ -901,6 +986,11 @@ void draw_textbox(struct sulu_node *n) {
         dirty_max = scroll + vis_lines;
         need_border = 1;
         tb_first_paint = 0;
+    } else if(sel_start != tb_prev_sel_start || sel_end != tb_prev_sel_end) {
+        // Selection changed — for now just redraw everything visible
+        // (Improving this to only redraw affected lines is possible but complex)
+        dirty_min = scroll;
+        dirty_max = scroll + vis_lines;
     } else if(total != tb_prev_content_len) {
         // Content changed (insert/delete)
         // Cursor line and everything below it could have shifted
@@ -940,7 +1030,7 @@ void draw_textbox(struct sulu_node *n) {
     // Render only the dirty lines
     for(int line = dirty_min; line < dirty_max; line++) {
         render_line_strip(v, line, scroll, tb_x, tb_y, tb_w, tb_h,
-                          cursor_idx, text_color, bg_color);
+                          cursor_idx, sel_start, sel_end, text_color, bg_color);
     }
 
     // Partial blit: only the dirty region
@@ -956,6 +1046,8 @@ void draw_textbox(struct sulu_node *n) {
     tb_prev_cursor = cursor_idx;
     tb_prev_scroll = scroll;
     tb_prev_content_len = total;
+    tb_prev_sel_start = sel_start;
+    tb_prev_sel_end = sel_end;
 }
 
 void draw_node(struct sulu_node *n) {
@@ -1086,15 +1178,26 @@ void draw_node(struct sulu_node *n) {
 struct sulu_node* find_clicked_node(struct sulu_node *n, int x, int y) {
     if(!n) return 0;
     
-    struct sulu_node *child = n->children;
-    while(child) {
-        struct sulu_node *found = find_clicked_node(child, x, y);
-        if(found) return found;
-        child = child->next;
+    // Evaluate conditions for visibility-changing nodes
+    if(n->type == NODE_IF) {
+        if(!eval_expr(n->expr_left)) return 0;
     }
     
+    // Z-order: Children are appended, so last child is drawn on top.
+    // Search in reverse for hits.
+    struct sulu_node *child = n->children;
+    struct sulu_node *best_hit = 0;
+    while(child) {
+        struct sulu_node *found = find_clicked_node(child, x, y);
+        if(found) best_hit = found; // Keep the 'latest' one found
+        child = child->next;
+    }
+    if(best_hit) return best_hit;
+    
+    // Check this node itself
     if(x >= n->x && x <= n->x + n->w && y >= n->y && y <= n->y + n->h) {
-        if(n->type == NODE_BUTTON) return n;
+        if(n->type == NODE_BUTTON || n->type == NODE_RECT || n->type == NODE_TEXTBOX) 
+            return n;
     }
     
     return 0;
@@ -1183,7 +1286,7 @@ void render_app_incremental() {
 
 int main(int argc, char *argv[]) {
     if(argc < 2) {
-        printf("Usage: sulu_run <file.sul>\n");
+        printf("Usage: sulula <file.sul>\n");
         exit(1);
     }
     
@@ -1251,6 +1354,8 @@ int main(int argc, char *argv[]) {
     char *keyup_func   = 0;
     char *resize_func  = 0;
     char *mousedown_func = 0;
+    char *mouseup_func   = 0;
+    char *mousemove_func = 0;
     if(layout_node_ref) {
         init_func      = get_prop_str(layout_node_ref, "onInit",    0);
         frame_func     = get_prop_str(layout_node_ref, "onFrame",   0);
@@ -1258,6 +1363,8 @@ int main(int argc, char *argv[]) {
         keyup_func     = get_prop_str(layout_node_ref, "onKeyUp",   0);
         resize_func    = get_prop_str(layout_node_ref, "onResize",  0);
         mousedown_func = get_prop_str(layout_node_ref, "onMouseDown", 0);
+        mouseup_func   = get_prop_str(layout_node_ref, "onMouseUp",   0);
+        mousemove_func = get_prop_str(layout_node_ref, "onMouseMove", 0);
         char *wheel_func = get_prop_str(layout_node_ref, "onMouseWheel", 0);
         (void)wheel_func; // Will use in loop
     }
@@ -1265,6 +1372,8 @@ int main(int argc, char *argv[]) {
     set_var("windowW", win.width);
     set_var("windowH", win.height);
     set_var("mouse_wheel", 0);
+    set_var("mouse_rx", 0);
+    set_var("mouse_ry", 0);
     set_var("needs_redraw", 0);
 
     // One-shot initialisation before the loop
@@ -1312,18 +1421,38 @@ int main(int argc, char *argv[]) {
                 dirty = 2; // resize always needs full redraw
             }
 
-            if(ev.type == SULU_EV_MOUSE_BTN && ev.value == 1) { // L-Down
+            if(ev.type == SULU_EV_MOUSE_BTN) {
                 set_var("mouse_rx", ev.rx);
                 set_var("mouse_ry", ev.ry);
-                if(mousedown_func) exec_func(mousedown_func);
-                if(layout_node_ref) {
-                    struct sulu_node *hit = find_clicked_node(layout_node_ref, ev.rx, ev.ry);
-                    if(hit) {
+                if(ev.value == 1) { // L-Down
+                    struct sulu_node *hit = 0;
+                    if(layout_node_ref) hit = find_clicked_node(layout_node_ref, ev.rx, ev.ry);
+
+                    if(hit && hit->type == NODE_BUTTON) {
                         char *callback = get_prop_str(hit, "onClick", 0);
                         if(callback) exec_func(callback);
+                    } else {
+                        // Propagate to global handler only if it's the textbox or empty space
+                        if(!hit || hit->type == NODE_TEXTBOX) {
+                            if(mousedown_func) exec_func(mousedown_func);
+                        }
                     }
+                } else { // L-Up
+                    if(mouseup_func) exec_func(mouseup_func);
                 }
-                if(dirty < 1) dirty = 1;
+            }
+
+            if(ev.type == SULU_EV_MOUSE_MOVE) {
+                set_var("mouse_rx", ev.rx);
+                set_var("mouse_ry", ev.ry);
+                
+                // Only propagate move if not blocked by UI
+                struct sulu_node *move_hit = 0;
+                if(layout_node_ref) move_hit = find_clicked_node(layout_node_ref, ev.rx, ev.ry);
+                if(!move_hit || move_hit->type == NODE_TEXTBOX) {
+                    if(mousemove_func) exec_func(mousemove_func);
+                }
+                // No forced dirty here to prevent flickering
             }
 
             if(ev.type == SULU_EV_MOUSE_WHEEL) {
@@ -1333,6 +1462,15 @@ int main(int argc, char *argv[]) {
                     if(wheel_func) exec_func(wheel_func);
                 }
                 if(dirty < 1) dirty = 1;
+            }
+
+            if(ev.type == SULU_EV_PASTE) {
+                set_var_str("clipboard", win.shm->clipboard);
+                if(layout_node_ref) {
+                    char *paste_func = get_prop_str(layout_node_ref, "onPaste", 0);
+                    if(paste_func) exec_func(paste_func);
+                }
+                dirty = 2; // Force full redraw to show pasted content
             }
         }
 
