@@ -28,6 +28,7 @@ typedef enum {
     TOKEN_BUTTON,
     TOKEN_PROGRESS,
     TOKEN_RECT,
+    TOKEN_TEXTBOX,
 
     // Punctuation
     TOKEN_LBRACE,   // {
@@ -41,15 +42,19 @@ typedef enum {
     TOKEN_MINUS,    // -
     TOKEN_MOD,      // %
     TOKEN_SEMICOLON, // ;
-    TOKEN_LESS,      // <
-    TOKEN_GREATER,   // >
-    TOKEN_DBL_EQUAL, // ==
+    TOKEN_LESS,           // <
+    TOKEN_GREATER,        // >
+    TOKEN_LESS_EQUAL,     // <=
+    TOKEN_GREATER_EQUAL,  // >=
+    TOKEN_DBL_EQUAL,      // ==
     TOKEN_BANG,      // !
     TOKEN_BANG_EQUAL, // !=
     TOKEN_STAR,      // *
     TOKEN_SLASH,     // /
     TOKEN_LBRACKET,  // [
     TOKEN_RBRACKET,  // ]
+    TOKEN_AND,       // &&
+    TOKEN_OR,        // ||
     TOKEN_FOR,
     
     TOKEN_ERROR
@@ -78,7 +83,8 @@ typedef enum {
     NODE_BUTTON,
     NODE_PROGRESS,
     NODE_RECT,
-    
+    NODE_TEXTBOX,
+
     // Logic/Expression Nodes
     NODE_BLOCK,
     NODE_CALL,

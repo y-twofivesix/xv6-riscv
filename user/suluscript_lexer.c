@@ -68,7 +68,8 @@ static token_type_t check_keyword(char *start, int len) {
     if (strncmp(start, "button", len) == 0 && len == 6) return TOKEN_BUTTON;
     if (strncmp(start, "progress", len) == 0 && len == 8) return TOKEN_PROGRESS;
     if (strncmp(start, "rect", len) == 0 && len == 4) return TOKEN_RECT;
-    
+    if (strncmp(start, "textbox", len) == 0 && len == 7) return TOKEN_TEXTBOX;
+
     return TOKEN_IDENT;
 }
 
@@ -152,14 +153,34 @@ struct token suluscript_lexer_next(struct lexer *l) {
         case '*': return make_token(l, TOKEN_STAR, 1);
         case '/': return make_token(l, TOKEN_SLASH, 1);
         case '%': return make_token(l, TOKEN_MOD, 1);
-        case '<': return make_token(l, TOKEN_LESS, 1);
-        case '>': return make_token(l, TOKEN_GREATER, 1);
+        case '<': {
+            if (*l->curr == '=') { l->curr++; return make_token(l, TOKEN_LESS_EQUAL, 2); }
+            return make_token(l, TOKEN_LESS, 1);
+        }
+        case '>': {
+            if (*l->curr == '=') { l->curr++; return make_token(l, TOKEN_GREATER_EQUAL, 2); }
+            return make_token(l, TOKEN_GREATER, 1);
+        }
         case '!': {
             if (*l->curr == '=') {
                 l->curr++;
                 return make_token(l, TOKEN_BANG_EQUAL, 2);
             }
             return make_token(l, TOKEN_BANG, 1);
+        }
+        case '&': {
+            if (*l->curr == '&') {
+                l->curr++;
+                return make_token(l, TOKEN_AND, 2);
+            }
+            return make_token(l, TOKEN_ERROR, 1);
+        }
+        case '|': {
+            if (*l->curr == '|') {
+                l->curr++;
+                return make_token(l, TOKEN_OR, 2);
+            }
+            return make_token(l, TOKEN_ERROR, 1);
         }
     }
     

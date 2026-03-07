@@ -6,9 +6,12 @@
 #include "user/suluscript.h"
 #include "user/font.h"
 
+// --- Global State ---
 struct sulu_window win;
 struct sulu_node *root_ast = 0;
-static int did_return = 0;
+int did_return = 0;
+char *arg1_val = "";
+char *arg2_val = "";
 
 // Simple variable scope
 struct sulu_var {
@@ -24,6 +27,24 @@ struct sulu_var *variables = 0;
 // Forward declarations
 void exec_node(struct sulu_node *n);
 int eval_expr(struct sulu_node *n);
+void clear_arr_internal(struct sulu_var *v);
+int scancode_to_ascii(int scancode, int shift);
+void pop_internal(struct sulu_var *v);
+void push_internal(struct sulu_var *v, int val);
+void insert_at_internal(struct sulu_var *v, int idx, int val);
+void delete_at_internal(struct sulu_var *v, int idx);
+struct sulu_var* get_var_ptr(char *name);
+
+// Helper for strings
+char* eval_expr_str(struct sulu_node *n) {
+    if(!n) return 0;
+    if(n->type == NODE_LIT_STR) return n->val_str;
+    if(n->type == NODE_IDENT) {
+        struct sulu_var *v = get_var_ptr(n->ident);
+        if(v) return v->val_str;
+    }
+    return 0;
+}
 
 // Symbol Table
 int get_var(char *name) {
@@ -57,6 +78,24 @@ void set_var(char *name, int val) {
     variables = new_v;
 }
 
+void set_var_str(char *name, char *val) {
+    struct sulu_var *v = variables;
+    while(v) {
+        if(strcmp(v->name, name) == 0) {
+            v->val_str = val;
+            return;
+        }
+        v = v->next;
+    }
+    struct sulu_var *new_v = malloc(sizeof(struct sulu_var));
+    strncpy(new_v->name, name, 31);
+    new_v->val_int = 0;
+    new_v->val_str = val;
+    new_v->array = 0;
+    new_v->array_len = 0;
+    new_v->next = variables;
+    variables = new_v;
+}
 struct sulu_var* get_var_ptr(char *name) {
     struct sulu_var *v = variables;
     while(v) {
@@ -147,7 +186,265 @@ int exec_native(char *name, struct sulu_node *args) {
         if(args) usleep(eval_expr(args));
         return 0;
     }
+    if(strcmp(name, "push") == 0) {
+        if(args && args->next) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            if(v) push_internal(v, eval_expr(args->next));
+        }
+        return 0;
+    }
+    if(strcmp(name, "pop") == 0) {
+        if(args) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            if(v) pop_internal(v);
+        }
+        return 0;
+    }
+    if(strcmp(name, "resize") == 0) {
+        if(args && args->next) {
+            int nw = eval_expr(args);
+            int nh = eval_expr(args->next);
+            sulu_resize(&win, nw, nh);
+            set_var("windowW", win.width);
+            set_var("windowH", win.height);
+        }
+        return 0;
+    }
+    if(strcmp(name, "read_file") == 0) {
+        if(args && args->next) {
+            char *path = eval_expr_str(args);
+            struct sulu_var *v = get_var_ptr(args->next->ident);
+            if(path && v) {
+                int fd = open(path, O_RDONLY);
+                if(fd >= 0) {
+                    char c;
+                    clear_arr_internal(v);
+                    while(read(fd, &c, 1) > 0) {
+                        push_internal(v, (int)c);
+                    }
+                    close(fd);
+                }
+            }
+        }
+        return 0;
+    }
+    if(strcmp(name, "write_file") == 0) {
+        if(args && args->next) {
+            char *path = eval_expr_str(args);
+            struct sulu_var *v = get_var_ptr(args->next->ident);
+            if(path && v) {
+                int fd = open(path, O_WRONLY|O_CREATE|O_TRUNC);
+                if(fd >= 0) {
+                    for(int i = 0; i < v->array_len; i++) {
+                        char c = (char)v->array[i];
+                        write(fd, &c, 1);
+                    }
+                    close(fd);
+                }
+            }
+        }
+        return 0;
+    }
+    if(strcmp(name, "to_char") == 0) {
+        if(args) {
+            int code = eval_expr(args);
+            int shift = (args->next) ? eval_expr(args->next) : 0;
+            return scancode_to_ascii(code, shift);
+        }
+        return 0;
+    }
+    if(strcmp(name, "insert_at") == 0) {
+        // insert_at(arr, idx, val)
+        if(args && args->next && args->next->next) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            int idx = eval_expr(args->next);
+            int val = eval_expr(args->next->next);
+            if(v) insert_at_internal(v, idx, val);
+        }
+        return 0;
+    }
+    if(strcmp(name, "delete_at") == 0) {
+        // delete_at(arr, idx)
+        if(args && args->next) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            int idx = eval_expr(args->next);
+            if(v) delete_at_internal(v, idx);
+        }
+        return 0;
+    }
+    if(strcmp(name, "cursor_line") == 0) {
+        // cursor_line(arr, cursor_idx) -> line number (0-based)
+        if(args && args->next) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            int cidx = eval_expr(args->next);
+            if(v && v->array) {
+                int line = 0;
+                int lim = cidx < v->array_len ? cidx : v->array_len;
+                for(int i = 0; i < lim; i++)
+                    if(v->array[i] == '\n') line++;
+                return line;
+            }
+        }
+        return 0;
+    }
+    if(strcmp(name, "cursor_col") == 0) {
+        // cursor_col(arr, cursor_idx) -> column (0-based)
+        if(args && args->next) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            int cidx = eval_expr(args->next);
+            if(v && v->array) {
+                int col = 0;
+                int lim = cidx < v->array_len ? cidx : v->array_len;
+                for(int i = 0; i < lim; i++) {
+                    if(v->array[i] == '\n') col = 0;
+                    else col++;
+                }
+                return col;
+            }
+        }
+        return 0;
+    }
+    if(strcmp(name, "line_start") == 0) {
+        // line_start(arr, line_num) -> array index of first char on that line
+        if(args && args->next) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            int line_num = eval_expr(args->next);
+            if(v && v->array) {
+                if(line_num == 0) return 0;
+                int line = 0;
+                for(int i = 0; i < v->array_len; i++) {
+                    if(v->array[i] == '\n') {
+                        line++;
+                        if(line == line_num) return i + 1;
+                    }
+                }
+                return v->array_len;
+            }
+        }
+        return 0;
+    }
+    if(strcmp(name, "line_count") == 0) {
+        // line_count(arr) -> total number of lines
+        if(args) {
+            struct sulu_var *v = get_var_ptr(args->ident);
+            if(v && v->array) {
+                int count = 1;
+                for(int i = 0; i < v->array_len; i++)
+                    if(v->array[i] == '\n') count++;
+                return count;
+            }
+        }
+        return 0;
+    }
+    if(strcmp(name, "xy_to_cursor") == 0) {
+        // xy_to_cursor(arr, rx, ry, tb_x, tb_y, char_w, char_h, tb_w, scroll)
+        // Returns cursor index corresponding to a mouse click at (rx, ry)
+        if(!args) return 0;
+        struct sulu_node *a = args;
+        struct sulu_var *v = get_var_ptr(a->ident); a = a->next;
+        if(!v || !v->array || !a) return 0;
+        int rx = eval_expr(a); a = a->next;
+        if(!a) return 0;
+        int ry = eval_expr(a); a = a->next;
+        if(!a) return 0;
+        int tb_x = eval_expr(a); a = a->next;
+        if(!a) return 0;
+        int tb_y = eval_expr(a); a = a->next;
+        if(!a) return 0;
+        int cw = eval_expr(a); a = a->next;
+        if(!a) return 0;
+        int ch = eval_expr(a); a = a->next;
+        if(!a) return 0;
+        int tb_w = eval_expr(a); a = a->next; (void)tb_w;
+        int scroll = a ? eval_expr(a) : 0;
+        int pad = 4;
+        int start_x = tb_x + pad;
+        int start_y = tb_y + pad;
+        int target_line = (ry - start_y) / ch + scroll;
+        int target_col  = (rx - start_x) / cw;
+        if(target_col < 0) target_col = 0;
+        if(target_line < 0) target_line = 0;
+        int line = 0, col = 0;
+        for(int i = 0; i < v->array_len; i++) {
+            if(line == target_line) {
+                if(col >= target_col || v->array[i] == '\n') return i;
+                col++;
+            } else if(line > target_line) {
+                return i;
+            } else {
+                if(v->array[i] == '\n') { line++; col = 0; }
+            }
+        }
+        return v->array_len;
+    }
     return 0;
+}
+
+// Internal help for reuse
+void clear_arr_internal(struct sulu_var *v) {
+    if(v->array) {
+        free(v->array);
+        v->array = 0;
+        v->array_len = 0;
+    }
+}
+
+void push_internal(struct sulu_var *v, int val) {
+    if(!v->array) {
+        v->array = malloc(sizeof(int) * 4096);
+        v->array_len = 0;
+    }
+    if(v->array_len < 4096) {
+        v->array[v->array_len++] = val;
+    }
+}
+
+void pop_internal(struct sulu_var *v) {
+    if(v->array && v->array_len > 0) {
+        v->array_len--;
+        if(v->array_len == 0) {
+            free(v->array);
+            v->array = 0;
+        }
+    }
+}
+
+void insert_at_internal(struct sulu_var *v, int idx, int val) {
+    if(!v->array) {
+        v->array = malloc(sizeof(int) * 4096);
+        v->array_len = 0;
+    }
+    if(v->array_len >= 4096) return;
+    if(idx < 0) idx = 0;
+    if(idx > v->array_len) idx = v->array_len;
+    for(int i = v->array_len; i > idx; i--)
+        v->array[i] = v->array[i-1];
+    v->array[idx] = val;
+    v->array_len++;
+}
+
+void delete_at_internal(struct sulu_var *v, int idx) {
+    if(!v->array || idx < 0 || idx >= v->array_len) return;
+    for(int i = idx; i < v->array_len - 1; i++)
+        v->array[i] = v->array[i+1];
+    v->array_len--;
+}
+
+int scancode_to_ascii(int scancode, int shift) {
+    static char map[] = {
+        0,  0, '1', '2', '3', '4', '5', '6', '7', '8', '9', '0', '-', '=', '\b',
+        '\t', 'q', 'w', 'e', 'r', 't', 'y', 'u', 'i', 'o', 'p', '[', ']', '\n',
+        0, 'a', 's', 'd', 'f', 'g', 'h', 'j', 'k', 'l', ';', '\'', '`', 0, '\\',
+        'z', 'x', 'c', 'v', 'b', 'n', 'm', ',', '.', '/', 0, '*', 0, ' '
+    };
+    static char shift_map[] = {
+        0,  0, '!', '@', '#', '$', '%', '^', '&', '*', '(', ')', '_', '+', '\b',
+        '\t', 'Q', 'W', 'E', 'R', 'T', 'Y', 'U', 'I', 'O', 'P', '{', '}', '\n',
+        0, 'A', 'S', 'D', 'F', 'G', 'H', 'J', 'K', 'L', ':', '\"', '~', 0, '|',
+        'Z', 'X', 'C', 'V', 'B', 'N', 'M', '<', '>', '?', 0, '*', 0, ' '
+    };
+    if(scancode < 0 || scancode >= sizeof(map)) return 0;
+    return shift ? shift_map[scancode] : map[scancode];
 }
 
 // --- Expression Evaluator ---
@@ -187,8 +484,13 @@ int eval_expr(struct sulu_node *n) {
             case '/': res = r != 0 ? l / r : 0; break;
             case '%': res = r != 0 ? l % r : 0; break;
             case '=': res = (l == r); break;
+            case '!': res = (l != r); break;
             case '<': res = l < r; break;
             case '>': res = l > r; break;
+            case 'L': res = (l <= r); break;
+            case 'G': res = (l >= r); break;
+            case '&': res = (l && r) ? 1 : 0; break;
+            case '|': res = (l || r) ? 1 : 0; break;
         }
         return res;
     }
@@ -363,6 +665,11 @@ void layout_node(struct sulu_node *n, int x, int y, int max_w) {
             n->h = get_prop_int(n, "height", 20);
             break;
         }
+        case NODE_TEXTBOX: {
+            n->w = get_prop_int(n, "width", 300);
+            n->h = get_prop_int(n, "height", 200);
+            break;
+        }
         case NODE_IF: {
             if(eval_expr(n->expr_left)) {
                 struct sulu_node *child = n->children;
@@ -420,13 +727,112 @@ void draw_local_rect(int x, int y, int w, int h, uint32 color) {
     sulu_fill_rect(win.shm, x, y, w, h, color);
 }
 
+// --- Textbox Renderer ---
+// Renders a char array with a visible cursor.
+// Props: content (arr), cursor (int idx), x, y, width, height, color, bg, scroll (line offset)
+void draw_textbox(struct sulu_node *n) {
+    int tb_x  = get_prop_int(n, "x", n->x);
+    int tb_y  = get_prop_int(n, "y", n->y);
+    int tb_w  = get_prop_int(n, "width", n->w);
+    int tb_h  = get_prop_int(n, "height", n->h);
+    uint32 text_color = (uint32)get_prop_int(n, "color", 0xFFCCCCCC);
+    uint32 bg_color   = (uint32)get_prop_int(n, "bg",    0xFF1E1E1E);
+    int scroll     = get_prop_int(n, "scroll", 0);
+    int cursor_idx = get_prop_int(n, "cursor", -1);
+
+    // Resolve content array variable
+    struct sulu_var *v = 0;
+    struct sulu_prop *prop = n->props;
+    while(prop) {
+        if(strcmp(prop->name, "content") == 0) {
+            if(prop->val_expr && prop->val_expr->type == NODE_IDENT)
+                v = get_var_ptr(prop->val_expr->ident);
+            break;
+        }
+        prop = prop->next;
+    }
+
+    draw_local_rect(tb_x, tb_y, tb_w, tb_h, bg_color);
+    sulu_draw_rect(win.shm, tb_x, tb_y, tb_w, tb_h, 0xFF444444);
+
+    const int CHAR_W = 8;
+    const int CHAR_H = 10;
+    const int PAD    = 4;
+    int start_x = tb_x + PAD;
+    int max_x   = tb_x + tb_w - PAD;
+    int max_y   = tb_y + tb_h - PAD;
+
+    int logical_x    = start_x;
+    int logical_line = 0;
+    int total = v ? v->array_len : 0;
+
+    for(int i = 0; i <= total; i++) {
+        int screen_y = tb_y + PAD + (logical_line - scroll) * CHAR_H;
+
+        // Draw cursor before char at position i
+        if(i == cursor_idx && screen_y >= tb_y + PAD && screen_y + CHAR_H <= max_y) {
+            int cx = logical_x < max_x ? logical_x : max_x;
+            draw_local_rect(cx, screen_y, 2, CHAR_H, 0xFFFFFFFF);
+        }
+
+        if(i == total) break;
+
+        char c = (char)v->array[i];
+        if(c == '\n') {
+            logical_line++;
+            logical_x = start_x;
+        } else {
+            if(screen_y >= tb_y + PAD && screen_y + CHAR_H <= max_y && logical_x + CHAR_W <= max_x) {
+                sulu_draw_char(win.shm, logical_x, screen_y, c, text_color);
+            }
+            logical_x += CHAR_W;
+        }
+    }
+}
+
 void draw_node(struct sulu_node *n) {
     if(!n) return;
     
     switch(n->type) {
-        case NODE_TEXT:
-            draw_local_text(get_prop_int(n, "x", n->x), get_prop_int(n, "y", n->y), get_prop_str(n, "content", ""), (uint32)get_prop_int(n, "color", 0xFF000000));
+        case NODE_TEXT: {
+            char *msg = 0;
+            struct sulu_prop *p = n->props;
+            int is_array = 0;
+            struct sulu_var *v = 0;
+            while(p) {
+                if(strcmp(p->name, "content") == 0) {
+                    if(p->val_str) msg = p->val_str;
+                    else if(p->val_expr && p->val_expr->type == NODE_IDENT) {
+                        v = get_var_ptr(p->val_expr->ident);
+                        if(v && v->array) is_array = 1;
+                        else if(v) msg = v->val_str;
+                    }
+                    break;
+                }
+                p = p->next;
+            }
+            int tx = get_prop_int(n, "x", n->x);
+            int ty = get_prop_int(n, "y", n->y);
+            uint32 tc = (uint32)get_prop_int(n, "color", 0xFF000000);
+            if(is_array && v) {
+                int cx = tx;
+                int cy = ty;
+                for(int i=0; i < v->array_len; i++) {
+                    char c = (char)v->array[i];
+                    if(c == '\n') {
+                        cx = tx;
+                        cy += 10;
+                    } else {
+                        sulu_draw_char(win.shm, cx, cy, c, tc);
+                        cx += 8;
+                        if(cx > win.width - 10) { cx = tx; cy += 10; }
+                    }
+                }
+            } else {
+                sulu_draw_text(win.shm, tx, ty, msg ? msg : "", tc);
+            }
             break;
+        }
         case NODE_BUTTON: {
             int bx = get_prop_int(n, "x", n->x);
             int by = get_prop_int(n, "y", n->y);
@@ -445,6 +851,9 @@ void draw_node(struct sulu_node *n) {
             draw_local_rect(rx, ry, rw, rh, rc);
             break;
         }
+        case NODE_TEXTBOX:
+            draw_textbox(n);
+            break;
         case NODE_BLOCK: {
             struct sulu_node *child = n->children;
             while(child) {
@@ -613,16 +1022,28 @@ int main(int argc, char *argv[]) {
         exit(1);
     }
     sulu_set_title(win.shm, title);
+
+    if(argc > 2) set_var_str("arg1", argv[2]);
+    else set_var_str("arg1", "");
+    if(argc > 3) set_var_str("arg2", argv[3]);
+    else set_var_str("arg2", "");
     
     struct sulu_event ev;
     char *frame_func = 0;
     char *keydown_func = 0;
     char *keyup_func = 0;
+    char *resize_func = 0;
+    char *mousedown_func = 0;
     if(layout_node_ref) {
-        frame_func = get_prop_str(layout_node_ref, "onFrame", 0);
-        keydown_func = get_prop_str(layout_node_ref, "onKeyDown", 0);
-        keyup_func = get_prop_str(layout_node_ref, "onKeyUp", 0);
+        frame_func    = get_prop_str(layout_node_ref, "onFrame", 0);
+        keydown_func  = get_prop_str(layout_node_ref, "onKeyDown", 0);
+        keyup_func    = get_prop_str(layout_node_ref, "onKeyUp", 0);
+        resize_func   = get_prop_str(layout_node_ref, "onResize", 0);
+        mousedown_func = get_prop_str(layout_node_ref, "onMouseDown", 0);
     }
+    
+    set_var("windowW", win.width);
+    set_var("windowH", win.height);
 
     while(1) {
         // Animation/Frame Logic
@@ -644,7 +1065,19 @@ int main(int argc, char *argv[]) {
                 if(ev.value == 0 && keyup_func) exec_func(keyup_func);
             }
 
+            if(ev.type == SULU_EV_RESIZE) {
+                // Sulu WM resized us
+                win.width = ev.x;
+                win.height = ev.y;
+                set_var("windowW", win.width);
+                set_var("windowH", win.height);
+                if(resize_func) exec_func(resize_func);
+            }
+
             if(ev.type == SULU_EV_MOUSE_BTN && ev.value == 1) { // L-Down
+                set_var("mouse_rx", ev.rx);
+                set_var("mouse_ry", ev.ry);
+                if(mousedown_func) exec_func(mousedown_func);
                 if(layout_node_ref) {
                     struct sulu_node *hit = find_clicked_node(layout_node_ref, ev.rx, ev.ry);
                     if(hit) {

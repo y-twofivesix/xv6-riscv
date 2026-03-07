@@ -105,6 +105,45 @@ runcmd(struct cmd *cmd)
       break;
     }
 
+    // Shebang (#!) support
+    int fd = open(path, O_RDONLY);
+    if(fd >= 0) {
+        char head[128];
+        int n = read(fd, head, sizeof(head)-1);
+        close(fd);
+        if(n >= 2 && head[0] == '#' && head[1] == '!') {
+            head[n] = 0;
+            char *p = head + 2;
+            while(*p == ' ') p++; // Skip spaces after #!
+            char *interp = p;
+            while(*p && *p != ' ' && *p != '\n' && *p != '\r') p++;
+            *p = 0; // Terminate interpreter path
+
+            // Shift argv to make room for interpreter
+            char *new_argv[MAXARGS];
+            new_argv[0] = interp;
+            new_argv[1] = path;
+            for(int i = 1; ecmd->argv[i]; i++) {
+                if(i + 1 < MAXARGS) new_argv[i+1] = ecmd->argv[i];
+                else break;
+            }
+            new_argv[ecmd->argv[0] ? (1 + (n > 2 ? 1 : 0)) : 1] = 0; // Simplified for demo
+            
+            // Re-build argv properly
+            int j = 0;
+            new_argv[j++] = interp;
+            new_argv[j++] = path; // The script itself is the first arg to the interpreter
+            for(int k = 1; ecmd->argv[k] && j < MAXARGS-1; k++) {
+                new_argv[j++] = ecmd->argv[k];
+            }
+            new_argv[j] = 0;
+
+            exec(interp, new_argv);
+            fprintf(2, "exec interpreter %s failed\n", interp);
+            exit(1);
+        }
+    }
+
     exec(path, ecmd->argv);
     fprintf(2, "exec %s failed\n", ecmd->argv[0]);
     break;

@@ -97,6 +97,7 @@ static struct sulu_node* parse_ui_element(struct parser *p) {
         case TOKEN_BUTTON: type = NODE_BUTTON; break;
         case TOKEN_PROGRESS: type = NODE_PROGRESS; break;
         case TOKEN_RECT: type = NODE_RECT; break;
+        case TOKEN_TEXTBOX: type = NODE_TEXTBOX; break;
         case TOKEN_FOR: return parse_for(p);
         case TOKEN_IF: return parse_if(p);
         default: return 0;
@@ -324,9 +325,9 @@ static struct sulu_node* parse_statement(struct parser *p) {
     if (p->curr.type == TOKEN_FOR) return parse_for(p);
     
     // UI Elements as statements (useful in layout loops)
-    if (p->curr.type == TOKEN_VBOX || p->curr.type == TOKEN_HBOX || 
+    if (p->curr.type == TOKEN_VBOX || p->curr.type == TOKEN_HBOX ||
         p->curr.type == TOKEN_TEXT || p->curr.type == TOKEN_BUTTON ||
-        p->curr.type == TOKEN_RECT) {
+        p->curr.type == TOKEN_RECT || p->curr.type == TOKEN_TEXTBOX) {
         return parse_ui_element(p);
     }
 
@@ -360,35 +361,45 @@ static struct sulu_node* parse_expression(struct parser *p) {
 
 static int get_precedence(token_type_t type) {
     switch(type) {
-        case TOKEN_DBL_EQUAL: return 1;
+        case TOKEN_OR:        return 1;
+        case TOKEN_AND:       return 2;
+        case TOKEN_DBL_EQUAL:
+        case TOKEN_BANG_EQUAL: return 3;
         case TOKEN_LESS:
-        case TOKEN_GREATER: return 2;
+        case TOKEN_GREATER:
+        case TOKEN_LESS_EQUAL:
+        case TOKEN_GREATER_EQUAL: return 4;
         case TOKEN_PLUS:
-        case TOKEN_MINUS: return 3;
+        case TOKEN_MINUS:     return 5;
         case TOKEN_STAR:
         case TOKEN_SLASH:
-        case TOKEN_MOD: return 4;
+        case TOKEN_MOD:       return 6;
         default: return 0;
     }
 }
 
 static struct sulu_node* parse_binary(struct parser *p, int min_prec) {
     struct sulu_node *left = parse_primary(p);
-    
+
     while (1) {
         int prec = get_precedence(p->curr.type);
         if (prec <= min_prec) break;
-        
+
         token_type_t type = p->curr.type;
         char op = '+';
-        if (type == TOKEN_MINUS) op = '-';
-        else if (type == TOKEN_STAR) op = '*';
+        if (type == TOKEN_MINUS)      op = '-';
+        else if (type == TOKEN_STAR)  op = '*';
         else if (type == TOKEN_SLASH) op = '/';
-        else if (type == TOKEN_MOD) op = '%';
-        else if (type == TOKEN_LESS) op = '<';
-        else if (type == TOKEN_GREATER) op = '>';
-        else if (type == TOKEN_DBL_EQUAL) op = '=';
-        
+        else if (type == TOKEN_MOD)   op = '%';
+        else if (type == TOKEN_LESS)           op = '<';
+        else if (type == TOKEN_GREATER)        op = '>';
+        else if (type == TOKEN_LESS_EQUAL)     op = 'L';
+        else if (type == TOKEN_GREATER_EQUAL)  op = 'G';
+        else if (type == TOKEN_DBL_EQUAL)  op = '=';
+        else if (type == TOKEN_BANG_EQUAL) op = '!';
+        else if (type == TOKEN_AND)        op = '&';
+        else if (type == TOKEN_OR)         op = '|';
+
         advance(p);
         struct sulu_node *bin = alloc_node(NODE_BINOP);
         bin->op = op;

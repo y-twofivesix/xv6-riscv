@@ -1,0 +1,162 @@
+#!/bin/sulu_run
+window {
+    title: "Editor",
+    width: 640,
+    height: 480,
+    bg: 0xFF1E1E1E
+}
+
+// --- State ---
+var content  = 0;   // flat char array of file bytes
+var cursor   = 0;   // index into content
+var scroll   = 0;   // first visible line number
+var shift    = 0;
+var ctrl     = 0;
+var initialized = 0;
+
+// Textbox layout constants (must match textbox element below)
+var TB_X  = 0;
+var TB_Y  = 28;
+var TB_W  = 640;
+var TB_H  = 452;
+var VIS   = 44;     // visible lines: (452 - 8) / 10
+
+// --- Init: load file on first frame ---
+fn on_frame() {
+    if(initialized == 0) {
+        read_file(arg1, content);
+        cursor = len(content);
+        initialized = 1;
+    }
+}
+
+// --- Save ---
+fn do_save() {
+    write_file(arg1, content);
+}
+
+// --- Key Events ---
+fn on_keydown() {
+    // Track modifiers — early return so they don't type a char
+    if(key == 42) { shift = 1; return 0; }   // LShift
+    if(key == 54) { shift = 1; return 0; }   // RShift
+    if(key == 29) { ctrl  = 1; return 0; }   // LCtrl
+
+    // Ctrl combos
+    if(ctrl == 1) {
+        if(key == 31) { write_file(arg1, content); }  // Ctrl+S
+        return 0;
+    }
+
+    // Reusable locals for navigation
+    var cl  = 0;
+    var cc  = 0;
+    var tl  = 0;
+    var ps  = 0;
+    var cs  = 0;
+    var ns  = 0;
+    var es  = 0;
+    var mc  = 0;
+    var ch  = 0;
+
+    // Arrow: Left
+    if(key == 105) {
+        if(cursor > 0) { cursor = cursor - 1; }
+    }
+
+    // Arrow: Right
+    if(key == 106) {
+        if(cursor < len(content)) { cursor = cursor + 1; }
+    }
+
+    // Arrow: Up
+    if(key == 103) {
+        cl = cursor_line(content, cursor);
+        if(cl > 0) {
+            cc = cursor_col(content, cursor);
+            ps = line_start(content, cl - 1);
+            cs = line_start(content, cl);
+            mc = cs - ps - 1;
+            if(mc < 0) { mc = 0; }
+            if(cc > mc) { cc = mc; }
+            cursor = ps + cc;
+        }
+    }
+
+    // Arrow: Down
+    if(key == 108) {
+        cl = cursor_line(content, cursor);
+        tl = line_count(content);
+        if(cl < tl - 1) {
+            cc = cursor_col(content, cursor);
+            ns = line_start(content, cl + 1);
+            es = line_start(content, cl + 2);
+            mc = es - ns - 1;
+            if(mc < 0) { mc = 0; }
+            if(cc > mc) { cc = mc; }
+            cursor = ns + cc;
+        }
+    }
+
+    // Backspace
+    if(key == 14) {
+        if(cursor > 0) {
+            cursor = cursor - 1;
+            delete_at(content, cursor);
+        }
+    }
+
+    // Enter
+    if(key == 28) {
+        insert_at(content, cursor, 10);
+        cursor = cursor + 1;
+    }
+
+    // Tab: insert 4 spaces
+    if(key == 15) {
+        insert_at(content, cursor, 32); cursor = cursor + 1;
+        insert_at(content, cursor, 32); cursor = cursor + 1;
+        insert_at(content, cursor, 32); cursor = cursor + 1;
+        insert_at(content, cursor, 32); cursor = cursor + 1;
+    }
+
+    // Printable character (to_char returns 0 for special keys, <32 for control chars)
+    ch = to_char(key, shift);
+    if(ch >= 32) {
+        insert_at(content, cursor, ch);
+        cursor = cursor + 1;
+    }
+
+    // Clamp scroll so cursor line stays visible
+    cl = cursor_line(content, cursor);
+    if(cl < scroll) { scroll = cl; }
+    if(cl >= scroll + VIS) { scroll = cl - VIS + 1; }
+}
+
+fn on_keyup() {
+    if(key == 42) { shift = 0; }
+    if(key == 54) { shift = 0; }
+    if(key == 29) { ctrl  = 0; }
+}
+
+// --- Mouse click: position cursor ---
+fn on_mousedown() {
+    cursor = xy_to_cursor(content, mouse_rx, mouse_ry, TB_X, TB_Y, 8, 10, TB_W, scroll);
+    // Clamp scroll after click
+    var cl = cursor_line(content, cursor);
+    if(cl < scroll) { scroll = cl; }
+    if(cl >= scroll + VIS) { scroll = cl - VIS + 1; }
+}
+
+// --- Layout ---
+layout(onFrame: on_frame, onKeyDown: on_keydown, onKeyUp: on_keyup, onMouseDown: on_mousedown) {
+    // Header bar
+    rect(x: 0, y: 0, width: 640, height: 28, color: 0xFF2D2D2D);
+    text(content: arg1, x: 10, y: 8, color: 0xFFAAAAAA);
+    button(label: "SAVE", x: 580, y: 4, onClick: do_save);
+
+    // Text editing area
+    textbox(content: content, cursor: cursor,
+            x: TB_X, y: TB_Y, width: TB_W, height: TB_H,
+            color: 0xFFCCCCCC, bg: 0xFF1E1E1E, scroll: scroll);
+}

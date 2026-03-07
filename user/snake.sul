@@ -1,3 +1,4 @@
+#!/bin/sulu_run
 window {
     title: "Sulu Snake",
     bg: 0xFF111111,
@@ -55,9 +56,9 @@ fn update() {
     
     // Bounds check
     if(headX < 0) { gameOver = 1; }
-    if(headX > 380) { gameOver = 1; }
+    if(headX > windowW - 20) { gameOver = 1; }
     if(headY < 0) { gameOver = 1; }
-    if(headY > 380) { gameOver = 1; }
+    if(headY > windowH - 20) { gameOver = 1; }
 
     update_at(bodyX, 0, headX);
     update_at(bodyY, 0, headY);
@@ -66,8 +67,8 @@ fn update() {
     if(headX == foodX) {
         if(headY == foodY) {
             print("sulu: COLLISION! head=", headX, ",", headY);
-            foodX = (rand() % 19) * 20;
-            foodY = (rand() % 19) * 20;
+            foodX = (rand() % (windowW / 20 - 1)) * 20;
+            foodY = (rand() % (windowH / 20 - 1)) * 20;
             print("sulu: NEW FOOD AT ", foodX, ",", foodY);
             push(bodyX, headX);
             push(bodyY, headY);
@@ -82,7 +83,7 @@ fn on_key() {
     if(key == 105) { dir = 3; } // Left
 }
 
-layout(onFrame: update, onKeyDown: on_key) {
+layout(onFrame: update, onKeyDown: on_key, onResize: handle_resize) {
     // Food
     rect(x: foodX, y: foodY, width: 20, height: 20, color: 0xFFFF0000);
     
@@ -92,6 +93,11 @@ layout(onFrame: update, onKeyDown: on_key) {
     }
     
     if(gameOver == 1) {
-        text(content: "GAME OVER", x: 150, y: 180, color: 0xFFFF0000);
+        text(content: "GAME OVER", x: windowW / 2 - 40, y: windowH / 2 - 10, color: 0xFFFF0000);
+        button(label: "restart", restart, x: windowW / 2 - 40, y: windowH / 2 + 10):
     }
+}
+
+fn handle_resize() {
+    print("sulu: Resized to ", windowW, "x", windowH);
 }
